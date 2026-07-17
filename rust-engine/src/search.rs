@@ -27,6 +27,8 @@ pub struct SearchCtx {
     pub time_limit_ms: f64,
     pub rng_state: u64,
     pub current_hash: u64,  // Step 4: 增量维护当前根+搜索路径的 hash
+    pub path_hash: Vec<u64>,  // Step 5: 搜索路径 hash 栈，用于全路径重复检测
+    pub path_gives_check: Vec<bool>,  // Step 5: 每 ply 是否将军对方（用于长将判负）
 }
 
 impl SearchCtx {
@@ -38,6 +40,8 @@ impl SearchCtx {
             nodes: 0, stop: false, start_time_ms: 0.0, time_limit_ms: 0.0,
             rng_state: 0xDEADBEEF_CAFEBABE,
             current_hash: 0,
+            path_hash: Vec::with_capacity(128),
+            path_gives_check: Vec::with_capacity(128),
         }
     }
     pub fn clear_tt(&mut self) { for e in self.tt.iter_mut() { *e = TTEntry::default(); } }
@@ -124,7 +128,11 @@ fn quiesce(
         if best < beta {
             for (fr,fc,tr,tc) in moves {
                 let u = crate::rules::make_move_zh(board, fr, fc, tr, tc, &mut ctx.current_hash, &ctx.z);
+                ctx.path_hash.push(ctx.current_hash);
+                ctx.path_gives_check.push(in_check(board, !red_to_move));
                 let val = -quiesce(ctx, board, -beta, -alpha, !red_to_move, depth-1, ply+1);
+                ctx.path_hash.pop();
+                ctx.path_gives_check.pop();
                 crate::rules::unmake_move_zh(board, u, &mut ctx.current_hash, &ctx.z);
                 if val > best { best = val; }
                 if best > alpha { alpha = best; }
@@ -152,7 +160,11 @@ fn quiesce(
         // SEE 过滤：明显亏损的吃子直接跳过（不影响吃将，将不会出现在 legal captures 里）
         if see_capture(board, fr, fc, tr, tc) < 0 { continue; }
         let u = crate::rules::make_move_zh(board, fr, fc, tr, tc, &mut ctx.current_hash, &ctx.z);
+        ctx.path_hash.push(ctx.current_hash);
+        ctx.path_gives_check.push(in_check(board, !red_to_move));
         let val = -quiesce(ctx, board, -beta, -alpha, !red_to_move, depth-1, ply+1);
+        ctx.path_hash.pop();
+        ctx.path_gives_check.pop();
         crate::rules::unmake_move_zh(board, u, &mut ctx.current_hash, &ctx.z);
         if val >= beta { return beta; }
         if val > alpha { alpha = val; }
@@ -172,9 +184,37 @@ fn negamax(
     rep_count: &HashMap<u64, i32>,
 ) -> i32 {
     ctx.nodes += 1;
-    // 重复局面惩罚（对齐 JS：ply>0 && ply<2）
-    if ply > 0 && ply < 2 {
+    // Step 5: 全路径 + 历史重复检测
+    // 1) 搜索路径中出现同一 hash → 立即返回 0（避免虚假 PV）
+    // 2) 历史 rep_count 已 ≥1 且再重复 → 也视为循环
+    if ply > 0 {
         let ck = ctx.current_hash;
+        // 检查搜索路径中是否已存在（跳过路径末尾 = 当前节点自身，由父层 push）
+        let plen = ctx.path_hash.len();
+        for i in (0..plen.saturating_sub(1)).rev() {
+            let h = ctx.path_hash[i];
+            if h == ck {
+                // 长将判负：若近 N 手所有己方走的都是将军，我方主动重复 = 长将判负
+                // 简化实现：若路径末尾 6 个 half-move 中，己方每一手都 gives_check → 判该方负
+                let n = ctx.path_gives_check.len();
+                if n >= 6 {
+                    // 己方走的是偶数 ply（相对当前局面）：反查路径倒数 6 层
+                    let mut all_me_check = true;
+                    // path_gives_check[i] 表示 push 第 i 层时的 gives_check（也就是当前方"上一步走完后"是否将了对手）
+                    // 我方最近走了 3 次，交替间隔 2
+                    for j in 0..3 {
+                        let idx_from_end = 1 + j*2;
+                        if idx_from_end > n { all_me_check = false; break; }
+                        if !ctx.path_gives_check[n - idx_from_end] { all_me_check = false; break; }
+                    }
+                    if all_me_check {
+                        return -MATE + ply;  // 我方长将 → 判负
+                    }
+                }
+                return 0;
+            }
+        }
+        // 历史（走过的实际棋谱）重复
         if *rep_count.get(&ck).unwrap_or(&0) >= 1 { return 0; }
     }
     if alpha < -MATE + ply { alpha = -MATE + ply; }
@@ -267,6 +307,9 @@ fn negamax(
         // 记录本 ply 走的着（供子层 counter 使用）
         if (ply as usize) < ply_stack.len() { ply_stack[ply as usize] = Some(mv); } else { ply_stack.push(Some(mv)); }
         let gc = in_check(board, !red_to_move);
+        // Step 5: 记录路径信息
+        ctx.path_hash.push(ctx.current_hash);
+        ctx.path_gives_check.push(gc);
         moves_done += 1;
         let sd = depth - 1;
         let val;
@@ -289,6 +332,8 @@ fn negamax(
             val = v;
         }
         crate::rules::unmake_move_zh(board, u, &mut ctx.current_hash, &ctx.z);
+        ctx.path_hash.pop();
+        ctx.path_gives_check.pop();
         if (ply as usize) < ply_stack.len() { ply_stack[ply as usize] = None; }
         if val > best_val {
             best_val = val; best_move = mv;
@@ -364,6 +409,8 @@ pub fn ai_move(
 
     ctx.start_time_ms = now_ms();
     ctx.current_hash = board_hash(&ctx.z, &board, ai_is_red);
+    ctx.path_hash.clear();
+    ctx.path_gives_check.clear();
     let time_limit = time_limit_ms.unwrap_or_else(|| {
         if max_depth >= 5 { 8000.0 } else if max_depth >= 4 { 4000.0 } else if max_depth >= 3 { 1500.0 } else { 500.0 }
     });
