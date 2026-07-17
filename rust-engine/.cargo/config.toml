@@ -1,0 +1,4 @@
+# Step 10 (v5-p5-perf): 仅对 wasm32 目标启用 WASM SIMD128
+# cargo test（本机 aarch64）不受影响
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

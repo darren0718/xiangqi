@@ -184,96 +184,109 @@ fn open_file(board: &Board, col: i32, red: bool) -> bool {
 }
 
 pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
+    // Step 10.1 (v5-p5-perf): 单遍历 evaluate
+    // 老实现分配 8 个 Vec 记录棋子位置，再多次遍历。这里改为定长栈数组 + 单次遍历累积。
     let mut score = 0i32;
-    let mut red_ae = 0; let mut blk_ae = 0;
-    let mut red_rooks: Vec<(i32,i32)> = Vec::with_capacity(2);
-    let mut blk_rooks: Vec<(i32,i32)> = Vec::with_capacity(2);
-    let mut red_cannons: Vec<(i32,i32)> = Vec::with_capacity(2);
-    let mut blk_cannons: Vec<(i32,i32)> = Vec::with_capacity(2);
-    let mut red_horses: Vec<(i32,i32)> = Vec::with_capacity(2);
-    let mut blk_horses: Vec<(i32,i32)> = Vec::with_capacity(2);
-    let mut red_pawns: Vec<(i32,i32)> = Vec::with_capacity(5);
-    let mut blk_pawns: Vec<(i32,i32)> = Vec::with_capacity(5);
+    let mut red_ae = 0i32; let mut blk_ae = 0i32;
+    // 每种大子最多 2 个，兵最多 5 个；用 [(r,c); N] 定长数组 + 计数
+    let mut red_rooks: [(i32,i32); 2] = [(0,0); 2]; let mut n_rr = 0usize;
+    let mut blk_rooks: [(i32,i32); 2] = [(0,0); 2]; let mut n_br = 0usize;
+    let mut red_cannons: [(i32,i32); 2] = [(0,0); 2]; let mut n_rc = 0usize;
+    let mut blk_cannons: [(i32,i32); 2] = [(0,0); 2]; let mut n_bc = 0usize;
+    let mut red_horses: [(i32,i32); 2] = [(0,0); 2]; let mut n_rh = 0usize;
+    let mut blk_horses: [(i32,i32); 2] = [(0,0); 2]; let mut n_bh = 0usize;
+    let mut red_pawns: [(i32,i32); 5] = [(0,0); 5]; let mut n_rp = 0usize;
+    let mut blk_pawns: [(i32,i32); 5] = [(0,0); 5]; let mut n_bp = 0usize;
     let mut red_king = (9,4); let mut blk_king = (0,4);
-    let phase = game_phase(board);
+    // 增量维护 majors 计数（车/马/炮）
+    let mut majors = 0i32;
+    for r in 0..ROWS as i32 {
+        for c in 0..COLS as i32 {
+            let p = board[idx(r,c)]; if p == 0 { continue; }
+            let t = piece_type_lower(p); let red = is_red(p);
+            match t {
+                b'k' => { if red { red_king = (r,c); } else { blk_king = (r,c); } }
+                b'a' | b'e' => { if red { red_ae += 1; } else { blk_ae += 1; } }
+                b'r' => { majors += 1; if red { red_rooks[n_rr]=(r,c); n_rr+=1; } else { blk_rooks[n_br]=(r,c); n_br+=1; } }
+                b'c' => { majors += 1; if red { red_cannons[n_rc]=(r,c); n_rc+=1; } else { blk_cannons[n_bc]=(r,c); n_bc+=1; } }
+                b'h' => { majors += 1; if red { red_horses[n_rh]=(r,c); n_rh+=1; } else { blk_horses[n_bh]=(r,c); n_bh+=1; } }
+                b'p' => { if red { red_pawns[n_rp]=(r,c); n_rp+=1; } else { blk_pawns[n_bp]=(r,c); n_bp+=1; } }
+                _ => {}
+            }
+        }
+    }
+    // phase 由 majors 计数直接得出（与 game_phase() 严格一致）
+    let phase = if majors >= 10 { 0 } else if majors >= 6 { 1 } else { 2 };
+    // 第二遍遍历累积 PST + pval（拆开是为了让 phase 先算出来，避免在第一遍遍历里传入 phase 造成分支加倍）
     for r in 0..ROWS as i32 {
         for c in 0..COLS as i32 {
             let p = board[idx(r,c)]; if p == 0 { continue; }
             let t = piece_type_lower(p); let red = is_red(p);
             let sign = if red { 1 } else { -1 };
             score += sign * (pval(t) + pst_val(p, r, c, phase));
-            match t {
-                b'k' => { if red { red_king = (r,c); } else { blk_king = (r,c); } }
-                b'a' | b'e' => { if red { red_ae += 1; } else { blk_ae += 1; } }
-                b'r' => { if red { red_rooks.push((r,c)); } else { blk_rooks.push((r,c)); } }
-                b'c' => { if red { red_cannons.push((r,c)); } else { blk_cannons.push((r,c)); } }
-                b'h' => { if red { red_horses.push((r,c)); } else { blk_horses.push((r,c)); } }
-                b'p' => { if red { red_pawns.push((r,c)); } else { blk_pawns.push((r,c)); } }
-                _ => {}
-            }
         }
     }
+    // 大子活动性 + 士象
     let mut red_mob = 0; let mut blk_mob = 0;
-    for &(r,c) in red_rooks.iter() { red_mob += rook_mobility(board, r, c); }
-    for &(r,c) in blk_rooks.iter() { blk_mob += rook_mobility(board, r, c); }
-    for &(r,c) in red_cannons.iter() { red_mob += cannon_mobility(board, r, c); }
-    for &(r,c) in blk_cannons.iter() { blk_mob += cannon_mobility(board, r, c); }
-    for &(r,c) in red_horses.iter() { red_mob += horse_legs(board, r, c) * 2; }
-    for &(r,c) in blk_horses.iter() { blk_mob += horse_legs(board, r, c) * 2; }
+    for i in 0..n_rr { let (r,c) = red_rooks[i]; red_mob += rook_mobility(board, r, c); }
+    for i in 0..n_br { let (r,c) = blk_rooks[i]; blk_mob += rook_mobility(board, r, c); }
+    for i in 0..n_rc { let (r,c) = red_cannons[i]; red_mob += cannon_mobility(board, r, c); }
+    for i in 0..n_bc { let (r,c) = blk_cannons[i]; blk_mob += cannon_mobility(board, r, c); }
+    for i in 0..n_rh { let (r,c) = red_horses[i]; red_mob += horse_legs(board, r, c) * 2; }
+    for i in 0..n_bh { let (r,c) = blk_horses[i]; blk_mob += horse_legs(board, r, c) * 2; }
     score += red_mob - blk_mob;
     score += (red_ae - blk_ae) * 15;
-    for &(r,c) in red_rooks.iter() {
+    // 车
+    for i in 0..n_rr { let (r,c) = red_rooks[i];
         if open_file(board, c, true) { score += 8; }
         if c == 3 || c == 5 { score += 6; }
         if r <= 2 { score += 5; }
     }
-    for &(r,c) in blk_rooks.iter() {
+    for i in 0..n_br { let (r,c) = blk_rooks[i];
         if open_file(board, c, false) { score -= 8; }
         if c == 3 || c == 5 { score -= 6; }
         if r >= 7 { score -= 5; }
     }
-    for &(r,c) in red_cannons.iter() {
+    // 炮
+    for i in 0..n_rc { let (r,c) = red_cannons[i];
         if c == 4 && r < 5 && r > 2 { score += 6; }
         if r <= 2 { score += 4; }
     }
-    for &(r,c) in blk_cannons.iter() {
+    for i in 0..n_bc { let (r,c) = blk_cannons[i];
         if c == 4 && r > 4 && r < 7 { score -= 6; }
         if r >= 7 { score -= 4; }
     }
-    for i in 0..red_pawns.len() {
+    // 兵
+    for i in 0..n_rp {
         let (r,c) = red_pawns[i];
         if r <= 4 {
             let mut paired = false;
-            for j in 0..red_pawns.len() { let (r2,c2) = red_pawns[j]; if r2==r && (c2-c).abs()==1 { paired = true; break; } }
+            for j in 0..n_rp { let (r2,c2) = red_pawns[j]; if r2==r && (c2-c).abs()==1 { paired = true; break; } }
             if paired { score += 6; }
             if c == 4 { score += 4; }
             if r == 0 { score -= 20; }
         } else if r <= 6 { score += 1; }
     }
-    for i in 0..blk_pawns.len() {
+    for i in 0..n_bp {
         let (r,c) = blk_pawns[i];
         if r >= 5 {
             let mut paired = false;
-            for j in 0..blk_pawns.len() { let (r2,c2) = blk_pawns[j]; if r2==r && (c2-c).abs()==1 { paired = true; break; } }
+            for j in 0..n_bp { let (r2,c2) = blk_pawns[j]; if r2==r && (c2-c).abs()==1 { paired = true; break; } }
             if paired { score -= 6; }
             if c == 4 { score -= 4; }
             if r == 9 { score += 20; }
         } else if r >= 3 { score -= 1; }
     }
-    for &(r,c) in red_horses.iter() { score += horse_legs(board, r, c); }
-    for &(r,c) in blk_horses.iter() { score -= horse_legs(board, r, c); }
+    for i in 0..n_rh { let (r,c) = red_horses[i]; score += horse_legs(board, r, c); }
+    for i in 0..n_bh { let (r,c) = blk_horses[i]; score -= horse_legs(board, r, c); }
     if phase == 2 {
         // 使用 2x 缩放绕过 4.5 分数：|k-4.5|*2 = |2k-9|
         let r2 = (2*red_king.0 - 9).abs() + 2*(red_king.1 - 4).abs();
         let b2 = (2*blk_king.0 - 9).abs() + 2*(blk_king.1 - 4).abs();
-        // (bkd - rkd) * 6 = (b2 - r2) * 3
         score += (b2 - r2) * 3;
         if red_king.0 >= 8 { score -= 5; }
         if blk_king.0 <= 1 { score += 5; }
     }
-
-    // Step 3 (v5): 未发展惩罚 —— 仅在开局阶段 (phase==0)
-    // 大子还留在初始位置 = 拖沓，直接给负分逼 AI 出子
     if phase == 0 {
         score += undeveloped_penalty(board);
     }
