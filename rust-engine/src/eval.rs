@@ -146,10 +146,28 @@ fn pst_val(piece: u8, r: i32, c: i32, phase: i32) -> i32 {
     tbl[rr][cc]
 }
 
+/// 马腿数（Step 22b: 修正原实现）
+/// 遍历马的 8 个日字走法：
+///   - 目标格必须在棋盘内
+///   - 目标格不能是己方子
+///   - 马腿（中间格）必须为空（关键）
+/// 返回可用走法数
 fn horse_legs(board: &Board, r: i32, c: i32) -> i32 {
+    let horse = board[idx(r,c)];
+    if horse == 0 { return 0; }
+    let red = is_red(horse);
     let mut free = 0;
-    for &(_dr,_dc,br,bc) in HORSE_MOVES.iter() {
-        if in_board(r+br, c+bc) && board[idx(r+br, c+bc)] == 0 { free += 1; }
+    for &(dr,dc,br,bc) in HORSE_MOVES.iter() {
+        let tr = r + dr; let tc = c + dc;
+        if !in_board(tr, tc) { continue; }
+        // 马腿检查
+        let lr = r + br; let lc = c + bc;
+        if !in_board(lr, lc) { continue; }
+        if board[idx(lr, lc)] != 0 { continue; }  // 马腿被塞
+        // 目标格不能是己方子
+        let tp = board[idx(tr, tc)];
+        if tp != 0 && ((red && is_red(tp)) || (!red && is_black(tp))) { continue; }
+        free += 1;
     }
     free
 }
@@ -284,29 +302,50 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
         if c == 4 && r > 4 && r < 7 { score -= 6; }
         if r >= 7 { score -= 4; }
     }
-    // 兵
+    // 兵（Step 22: 无谓进兵抑制 —— 兵推进加分需要"有大子过河"作为 gate）
+    // 未过河兵（r>=5 红 / r<=4 黑）本身占位；过河后才有战术价值，但只有当己方有过河大子时才鼓励。
+    let red_pawn_gate = red_support_across >= 2;  // 己方至少 2 门车/马/炮过河 → 兵推进有意义
+    let blk_pawn_gate = blk_support_across >= 2;
     for i in 0..n_rp {
         let (r,c) = red_pawns[i];
         if r <= 4 {
             let mut paired = false;
             for j in 0..n_rp { let (r2,c2) = red_pawns[j]; if r2==r && (c2-c).abs()==1 { paired = true; break; } }
-            if paired { score += 6; }
-            if c == 4 { score += 4; }
+            if paired { score += if red_pawn_gate { 6 } else { 2 }; }
+            if c == 4 { score += if red_pawn_gate { 4 } else { 1 }; }
             if r == 0 { score -= 20; }
-        } else if r <= 6 { score += 1; }
+        } else if r <= 6 { score += if red_pawn_gate { 1 } else { 0 }; }
     }
     for i in 0..n_bp {
         let (r,c) = blk_pawns[i];
         if r >= 5 {
             let mut paired = false;
             for j in 0..n_bp { let (r2,c2) = blk_pawns[j]; if r2==r && (c2-c).abs()==1 { paired = true; break; } }
-            if paired { score -= 6; }
-            if c == 4 { score -= 4; }
+            if paired { score -= if blk_pawn_gate { 6 } else { 2 }; }
+            if c == 4 { score -= if blk_pawn_gate { 4 } else { 1 }; }
             if r == 9 { score += 20; }
-        } else if r >= 3 { score -= 1; }
+        } else if r >= 3 { score -= if blk_pawn_gate { 1 } else { 0 }; }
     }
-    for i in 0..n_rh { let (r,c) = red_horses[i]; score += horse_legs(board, r, c); }
-    for i in 0..n_bh { let (r,c) = blk_horses[i]; score -= horse_legs(board, r, c); }
+    // 马活度 + 开局马路活通额外奖励
+    for i in 0..n_rh {
+        let (r,c) = red_horses[i];
+        let legs = horse_legs(board, r, c);
+        score += legs;
+        // Step 22b: 开局马路活通：马有 ≥3 个合法走法 +8；≤1 憋马 -12
+        if phase == 0 {
+            if legs >= 3 { score += 8; }
+            else if legs <= 1 { score -= 12; }
+        }
+    }
+    for i in 0..n_bh {
+        let (r,c) = blk_horses[i];
+        let legs = horse_legs(board, r, c);
+        score -= legs;
+        if phase == 0 {
+            if legs >= 3 { score -= 8; }
+            else if legs <= 1 { score += 12; }
+        }
+    }
     if phase == 2 {
         // 使用 2x 缩放绕过 4.5 分数：|k-4.5|*2 = |2k-9|
         let r2 = (2*red_king.0 - 9).abs() + 2*(red_king.1 - 4).abs();
@@ -323,6 +362,12 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
     // Step 7 (p1-tactics): 王安全 + 9 个战术模式（红-黑净分）
     score += crate::tactics::tactics_score(board);
 
+    // Step 22: 牵制评估（仅在开局阶段生效以节省开销 —— 开中局最影响出子）
+    if phase == 0 {
+        score += pinned_penalty(board, true, (red_king.0, red_king.1));
+        score -= pinned_penalty(board, false, (blk_king.0, blk_king.1));
+    }
+
     // Step 3 (v5): Tempo 微幅奖励，避免过度被动 (相对 side-to-move)
     score += if red_to_move { 6 } else { -6 };
 
@@ -335,23 +380,51 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
 /// 马原位：红 (9,1)/(9,7)，黑 (0,1)/(0,7)
 /// 炮原位：红 (7,1)/(7,7)，黑 (2,1)/(2,7)
 fn undeveloped_penalty(board: &Board) -> i32 {
+    // Step 22: 反转权重，参考 Pikafish/Stockfish：马 > 炮 > 车
+    // 象棋开局马是主力（跳到 (2,2)/(2,6) 才能出击），车相对灵活可后出
     let mut score = 0;
-    // 车
-    if board[idx(9,0)] == b'R' { score -= 15; }
-    if board[idx(9,8)] == b'R' { score -= 15; }
-    if board[idx(0,0)] == b'r' { score += 15; }
-    if board[idx(0,8)] == b'r' { score += 15; }
-    // 马
-    if board[idx(9,1)] == b'H' { score -= 12; }
-    if board[idx(9,7)] == b'H' { score -= 12; }
-    if board[idx(0,1)] == b'h' { score += 12; }
-    if board[idx(0,7)] == b'h' { score += 12; }
-    // 炮
-    if board[idx(7,1)] == b'C' { score -=  8; }
-    if board[idx(7,7)] == b'C' { score -=  8; }
-    if board[idx(2,1)] == b'c' { score +=  8; }
-    if board[idx(2,7)] == b'c' { score +=  8; }
+    // 马（-22 每门未出）—— 最重要
+    if board[idx(9,1)] == b'H' { score -= 22; }
+    if board[idx(9,7)] == b'H' { score -= 22; }
+    if board[idx(0,1)] == b'h' { score += 22; }
+    if board[idx(0,7)] == b'h' { score += 22; }
+    // 炮（-10 每门未出）
+    if board[idx(7,1)] == b'C' { score -= 10; }
+    if board[idx(7,7)] == b'C' { score -= 10; }
+    if board[idx(2,1)] == b'c' { score += 10; }
+    if board[idx(2,7)] == b'c' { score += 10; }
+    // 车（-6 每门未出）—— 权重降低，让 AI 先出马
+    if board[idx(9,0)] == b'R' { score -= 6; }
+    if board[idx(9,8)] == b'R' { score -= 6; }
+    if board[idx(0,0)] == b'r' { score += 6; }
+    if board[idx(0,8)] == b'r' { score += 6; }
     score
+}
+
+/// Step 22: 牵制评估 —— 己方被牵子力越贵重 → 越负分
+/// 参考 Stockfish：pinned pieces 是关键弱点，特别是大子被牵
+fn pinned_penalty(board: &Board, red: bool, kp: (i32,i32)) -> i32 {
+    if kp.0 < 0 { return 0; }
+    let bb = crate::rules::compute_pinned(board, red, kp);
+    if bb == 0 { return 0; }
+    let mut penalty = 0i32;
+    for r in 0..ROWS as i32 {
+        for c in 0..COLS as i32 {
+            if ((bb >> (r*9 + c)) & 1) == 0 { continue; }
+            let p = board[idx(r,c)];
+            if p == 0 { continue; }
+            let t = piece_type_lower(p);
+            penalty -= match t {
+                b'r' => 20,
+                b'h' => 16,
+                b'c' => 12,
+                b'p' => 6,
+                b'a' | b'e' => 4,
+                _ => 0,
+            };
+        }
+    }
+    penalty  // 返回负值（红方视角：己方被牵制越多越负）
 }
 
 /// Step 20b: 开局炮孤军惩罚
