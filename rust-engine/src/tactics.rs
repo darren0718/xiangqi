@@ -76,6 +76,14 @@ pub fn tactics_score(board: &Board) -> i32 {
     s += king_safety(board, rkr, rkc, true,  r_ae);
     s -= king_safety(board, bkr, bkc, false, b_ae);
 
+    // ========== Step 19: 组合战术 ==========
+    // 马炮联攻：己方马在 (敌王前 2 行的 3-5 列) 且己方炮与敌王同列/紧邻列 → +14
+    s += horse_cannon_combo(&r_hors[..r_hors_n], &r_cans[..r_cans_n], bkr, bkc, true);
+    s -= horse_cannon_combo(&b_hors[..b_hors_n], &b_cans[..b_cans_n], rkr, rkc, false);
+    // 双车切九宫：己方两车都进入敌王前 3 行且列 ∈ [2..6] → +15
+    s += double_rook_pressure(&r_rooks[..r_rooks_n], bkr, true);
+    s -= double_rook_pressure(&b_rooks[..b_rooks_n], rkr, false);
+
     // ========== B7 象眼被塞（评估中暂不启用，避免早期激进剪枝导致深度下降）==========
     let _ = elephant_eye_penalty;
 
@@ -231,6 +239,47 @@ fn zone_unit(p: u8, r: i32, red: bool) -> i32 {
     }
 }
 
+/// Step 19: 马炮联攻 —— 己方马进入敌王前 2 行（红：r∈[1,2]，黑：r∈[7,8]）且列 3-5
+/// 且己方至少一门炮与敌王同列或紧邻列（|Δc|≤1）→ +14
+#[inline]
+fn horse_cannon_combo(
+    hors: &[(i32,i32)], cans: &[(i32,i32)],
+    ekr: i32, ekc: i32, red: bool,
+) -> i32 {
+    if hors.is_empty() || cans.is_empty() { return 0; }
+    // 红方进攻 → 敌王在 r∈[0,2]，己方马应在 r∈[1,2] 且列 3-5
+    // 黑方进攻 → 敌王在 r∈[7,9]，己方马应在 r∈[7,8] 且列 3-5
+    let horse_near = if red {
+        hors.iter().any(|&(r,c)| r >= 1 && r <= 2 && c >= 3 && c <= 5)
+    } else {
+        hors.iter().any(|&(r,c)| r >= 7 && r <= 8 && c >= 3 && c <= 5)
+    };
+    if !horse_near { return 0; }
+    let cannon_near_col = cans.iter().any(|&(_r,c)| (c - ekc).abs() <= 1);
+    if !cannon_near_col { return 0; }
+    // 炮位置也要在己方进攻半场（避免自家底炮误判）
+    let cannon_forward = if red {
+        cans.iter().any(|&(r,c)| (c - ekc).abs() <= 1 && r <= 6)
+    } else {
+        cans.iter().any(|&(r,c)| (c - ekc).abs() <= 1 && r >= 3)
+    };
+    if cannon_forward { 14 } else { 0 }
+}
+
+/// Step 19: 双车切九宫 —— 己方两车都在敌王前 3 行 + 列 ∈ [2,6]
+/// 红方进攻 → 车 r∈[0,3]；黑方进攻 → 车 r∈[6,9]
+#[inline]
+fn double_rook_pressure(rooks: &[(i32,i32)], ekr: i32, red: bool) -> i32 {
+    if rooks.len() < 2 { return 0; }
+    let _ = ekr;
+    let in_zone = |r: i32, c: i32| {
+        c >= 2 && c <= 6 && if red { r <= 3 } else { r >= 6 }
+    };
+    let mut cnt = 0;
+    for &(r,c) in rooks.iter() { if in_zone(r, c) { cnt += 1; } }
+    if cnt >= 2 { 15 } else { 0 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,5 +342,35 @@ mod tests {
         b[idx(8,1)] = 0;
         let p_free = elephant_eye_penalty(&b, true);
         assert!(p_blocked > p_free, "helper should still report penalty");
+    }
+
+    #[test]
+    fn horse_cannon_combo_triggers() {
+        // 红方：红马挂角 (2,4) + 红炮在敌王同列前方 (5,4)
+        let mut b = empty();
+        place(&mut b, 9, 4, b'K');
+        place(&mut b, 0, 4, b'k');
+        place(&mut b, 2, 4, b'H');   // 挂角马（也会触发 +18 单模式）
+        place(&mut b, 5, 4, b'C');   // 己方炮同列 + forward
+        let s_with = tactics_score(&b);
+        // 去掉炮
+        b[idx(5,4)] = 0;
+        let s_no_cannon = tactics_score(&b);
+        assert!(s_with - s_no_cannon >= 14,
+            "horse_cannon_combo 应至少加 14 分，差值 {}", s_with - s_no_cannon);
+    }
+
+    #[test]
+    fn double_rook_pressure_triggers() {
+        let mut b = empty();
+        place(&mut b, 9, 4, b'K');
+        place(&mut b, 0, 4, b'k');
+        place(&mut b, 2, 3, b'R');  // 红车 1
+        place(&mut b, 3, 5, b'R');  // 红车 2 —— 两车都在敌王前 3 行、列 3-5
+        let s_with = tactics_score(&b);
+        b[idx(3,5)] = 0;
+        let s_one = tactics_score(&b);
+        assert!(s_with - s_one >= 15,
+            "double_rook_pressure 应至少加 15 分，差值 {}", s_with - s_one);
     }
 }
