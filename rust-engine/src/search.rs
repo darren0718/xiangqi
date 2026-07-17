@@ -3,7 +3,7 @@
 use crate::board::*;
 use crate::rules::*;
 // zh 变体在 rules 里，通过 crate::rules::make_move_zh/unmake_move_zh 使用
-use crate::eval::{evaluate, game_phase};
+use crate::eval::evaluate;
 use crate::zobrist::*;
 use crate::see::see_capture;
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ pub const INF: i32 = MATE + 1000;
 pub const TT_SIZE: usize = 1 << 19;
 
 #[derive(Clone, Copy, Default)]
-pub struct TTEntry { pub h: u64, pub d: i32, pub f: u8, pub v: i32, pub mv: (i32,i32,i32,i32), pub has_mv: bool, pub used: bool }
+pub struct TTEntry { pub h: u64, pub d: i32, pub f: u8, pub v: i32, pub mv: (i32,i32,i32,i32), pub has_mv: bool, pub used: bool, pub age: u8 }
 pub const TT_EXACT: u8 = 0; pub const TT_LOWER: u8 = 1; pub const TT_UPPER: u8 = 2;
 
 pub struct SearchCtx {
@@ -30,6 +30,7 @@ pub struct SearchCtx {
     pub path_hash: Vec<u64>,  // Step 5: 搜索路径 hash 栈，用于全路径重复检测
     pub path_gives_check: Vec<bool>,  // Step 5: 每 ply 是否将军对方（用于长将判负）
     pub deadline_ms: f64,  // Step 6: 绝对时间戳截止；超过则设置 stop
+    pub tt_age: u8,  // Step 9A: TT aging；每次 ai_move 递增，旧 age 条目优先淘汰
 }
 
 impl SearchCtx {
@@ -44,6 +45,7 @@ impl SearchCtx {
             path_hash: Vec::with_capacity(128),
             path_gives_check: Vec::with_capacity(128),
             deadline_ms: 0.0,
+            tt_age: 0,
         }
     }
     pub fn clear_tt(&mut self) { for e in self.tt.iter_mut() { *e = TTEntry::default(); } }
@@ -65,9 +67,14 @@ fn tt_put(ctx: &mut SearchCtx, h: u64, d: i32, f: u8, v: i32, mv: (i32,i32,i32,i
     let i = tt_idx(h);
     let replace = {
         let o = &ctx.tt[i];
-        !o.used || d >= o.d || o.f == TT_UPPER || ctx.rand_f64() < 0.2
+        // Step 9A: TT aging 替换策略（去掉随机数，替换更确定）
+        // 1) 空槽 → 直接写
+        // 2) 旧 age（跨局） → 直接覆盖
+        // 3) 同 age 时 depth >= 老条目 → 覆盖
+        // 4) 同 age 老条目是 UPPER（相对不可靠）→ 覆盖
+        !o.used || o.age != ctx.tt_age || d >= o.d || o.f == TT_UPPER
     };
-    if replace { ctx.tt[i] = TTEntry { h, d, f, v, mv, has_mv: true, used: true }; }
+    if replace { ctx.tt[i] = TTEntry { h, d, f, v, mv, has_mv: true, used: true, age: ctx.tt_age }; }
 }
 
 #[inline(always)] fn h_key(fr: i32, fc: i32, tr: i32, tc: i32) -> u32 { (fr*1000 + fc*100 + tr*10 + tc) as u32 }
@@ -262,8 +269,21 @@ fn negamax(
         }
     }
 
-    // Null-move
-    if allow_null && !in_chk && depth >= 3 && game_phase(board) != 2 && !is_pv {
+    // Step 9A: Null-move Zugzwang 精化
+    // 老逻辑：`game_phase != 2` 拦截残局，粗糙。
+    // 新逻辑：要求当前 side **有大子**（车/马/炮）；仅将/士/象 时容易零着，跳过。
+    let side_has_major = {
+        let mut has = false;
+        for &p in board.iter() {
+            if p == 0 { continue; }
+            if is_own(p, red_to_move) {
+                let t = piece_type_lower(p);
+                if t == b'r' || t == b'h' || t == b'c' { has = true; break; }
+            }
+        }
+        has
+    };
+    if allow_null && !in_chk && depth >= 3 && side_has_major && !is_pv {
         let r = if depth >= 5 { 3 } else { 2 };
         // 做空着：仅翻转 side，需要同步 XOR hash
         ctx.current_hash ^= ctx.z.side[0] ^ ctx.z.side[1];
@@ -422,6 +442,8 @@ pub fn ai_move(
     ctx.current_hash = board_hash(&ctx.z, &board, ai_is_red);
     ctx.path_hash.clear();
     ctx.path_gives_check.clear();
+    // Step 9A: TT aging，每次 ai_move 递增（wrap 到 u8）
+    ctx.tt_age = ctx.tt_age.wrapping_add(1);
     // Step 6: 硬性截止时间戳（3× time_limit 是老的兜底停止条件的上限）
     let time_limit = time_limit_ms.unwrap_or_else(|| {
         if max_depth >= 5 { 8000.0 } else if max_depth >= 4 { 4000.0 } else if max_depth >= 3 { 1500.0 } else { 500.0 }
@@ -467,11 +489,23 @@ pub fn ai_move(
 
     for depth in 1..=hard_depth_cap {
         if ctx.stop { break; }
+        // Step 9A: 多阶段 Aspiration Window，[60, 200, 800, INF] 渐宽
+        // 相比单一 60 → INF 的 2 阶段，命中率更高时窗更窄（剪枝更狠）；
+        // 命中率低时逐步放宽，避免直接 fail-hard 到 INF 浪费一次全窗搜索。
+        let mut val;
         if depth > 1 && best_move.is_some() {
-            let asp = 60; alpha = best_val - asp; beta = best_val + asp;
-        } else { alpha = -INF; beta = INF; }
-        let mut val = negamax(ctx, &mut board, depth, alpha, beta, ai_is_red, 0, &mut killers, &mut counter_moves, &mut ply_stack, true, true, &rep_count);
-        if val <= alpha || val >= beta {
+            let asp_deltas: [i32; 4] = [60, 200, 800, INF];
+            let mut i = 0;
+            loop {
+                let d = asp_deltas[i];
+                if d >= INF { alpha = -INF; beta = INF; } else { alpha = best_val - d; beta = best_val + d; }
+                val = negamax(ctx, &mut board, depth, alpha, beta, ai_is_red, 0, &mut killers, &mut counter_moves, &mut ply_stack, true, true, &rep_count);
+                if ctx.stop { break; }
+                if val > alpha && val < beta { break; }
+                if i + 1 >= asp_deltas.len() { break; }
+                i += 1;
+            }
+        } else {
             alpha = -INF; beta = INF;
             val = negamax(ctx, &mut board, depth, alpha, beta, ai_is_red, 0, &mut killers, &mut counter_moves, &mut ply_stack, true, true, &rep_count);
         }
