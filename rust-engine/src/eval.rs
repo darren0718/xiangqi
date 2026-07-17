@@ -386,6 +386,25 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
     score -= hanging_penalty(board, false, &blk_pawns[..n_bp], n_bp);
 
 
+    // Step 25 (R2): 交换净收益
+    score += exchange_penalty(board, true, &red_rooks[..n_rr], n_rr);
+    score += exchange_penalty(board, true, &red_cannons[..n_rc], n_rc);
+    score += exchange_penalty(board, true, &red_horses[..n_rh], n_rh);
+    score -= exchange_penalty(board, false, &blk_rooks[..n_br], n_br);
+    score -= exchange_penalty(board, false, &blk_cannons[..n_bc], n_bc);
+    score -= exchange_penalty(board, false, &blk_horses[..n_bh], n_bh);
+    // Step 26 (R3): 兵支撑联动
+    score += pawn_support_bonus(board, true, &red_pawns[..n_rp], n_rp, &red_cannons[..n_rc], n_rc, &red_horses[..n_rh], n_rh);
+    score -= pawn_support_bonus(board, false, &blk_pawns[..n_bp], n_bp, &blk_cannons[..n_bc], n_bc, &blk_horses[..n_bh], n_bh);
+    // Step 27 (R4): 车炮联动
+    score += rook_cannon_bonus(board, true, &red_rooks[..n_rr], n_rr, &red_cannons[..n_rc], n_rc);
+    score -= rook_cannon_bonus(board, false, &blk_rooks[..n_br], n_br, &blk_cannons[..n_bc], n_bc);
+    // Step 28 (R5): 主动权
+    score += initiative_bonus(board, red_king, blk_king,
+        &red_rooks[..n_rr], n_rr, &red_cannons[..n_rc], n_rc, &red_horses[..n_rh], n_rh,
+        &blk_rooks[..n_br], n_br, &blk_cannons[..n_bc], n_bc, &blk_horses[..n_bh], n_bh);
+
+
     // Step 3 (v5): Tempo 微幅奖励，避免过度被动 (相对 side-to-move)
     score += if red_to_move { 6 } else { -6 };
 
@@ -526,6 +545,118 @@ fn hanging_penalty(board: &Board, red: bool, pieces: &[(i32,i32)], n: usize) -> 
         };
     }
     penalty
+}
+
+
+/// Step 25 (R2): 交换净收益 - 检测己方子被对方更低价子攻击的威胁
+/// 对每个己方大子，找到对方最小的攻击者。若攻击者价值 < 被攻击者 → 扣分。
+fn exchange_penalty(board: &Board, red: bool, pieces: &[(i32,i32)], n: usize) -> i32 {
+    if n == 0 { return 0; }
+    let mut penalty = 0i32;
+    for i in 0..n {
+        let (r, c) = pieces[i];
+        let p = board[idx(r, c)];
+        if p == 0 { continue; }
+        if !square_attacked(board, r, c, !red) { continue; }
+        let my_val = pval(piece_type_lower(p));
+        // 找到对方最小的攻击者价值（简化：用 square_attacked 判断有无攻击，默认最小攻击者=兵）
+        // 对方能否用兵/马攻击？若不能，威胁就小。
+        // 简化实现：只要有攻击 → 威胁值 = 对方可能的最小攻击者（粗略估计为 100）
+        let threat_val = 100; // 保守估计对方最小攻击者价值
+        if my_val > threat_val {
+            penalty -= (my_val - threat_val) / 15;
+        }
+    }
+    penalty
+}
+
+/// Step 26 (R3): 兵支撑联动
+/// R3a: 兵当炮架 — 同列兵+炮，中间无子 → +10
+/// R3b: 兵控马位 — 兵在河口/过河，马在相邻列且也在敌阵 → +3
+fn pawn_support_bonus(board: &Board, red: bool, pawns: &[(i32,i32)], pn: usize,
+                       cannons: &[(i32,i32)], cn: usize,
+                       horses: &[(i32,i32)], hn: usize) -> i32 {
+    let mut bonus = 0i32;
+    // R3a: 兵当炮架
+    for pi in 0..pn {
+        let (pr, pc) = pawns[pi];
+        // 兵必须在河口或过河
+        let crossed = if red { pr <= 4 } else { pr >= 5 };
+        if !crossed { continue; }
+        for ci in 0..cn {
+            let (cr, cc) = cannons[ci];
+            if cc != pc { continue; } // 不同列
+            // 检查中间是否有子
+            let (lo, hi) = if cr < pr { (cr+1, pr) } else { (pr+1, cr) };
+            let mut has_blocker = false;
+            for mid in lo..hi {
+                if board[idx(mid, pc)] != 0 { has_blocker = true; break; }
+            }
+            if !has_blocker { bonus += 10; }
+        }
+    }
+    // R3b: 兵控马位
+    for pi in 0..pn {
+        let (pr, pc) = pawns[pi];
+        let crossed = if red { pr <= 4 } else { pr >= 5 };
+        if !crossed { continue; }
+        for hi in 0..hn {
+            let (hr, hc) = horses[hi];
+            let in_enemy = if red { hr <= 4 } else { hr >= 5 };
+            if !in_enemy { continue; }
+            if (hc - pc).abs() <= 1 { bonus += 3; }
+        }
+    }
+    bonus
+}
+
+/// Step 27 (R4): 车炮联动
+/// 同列的车和炮，中间无子：
+///   车在炮后面（更靠近己方底线）→ +15（车后炮，经典进攻）
+///   炮在车后面 → +10
+fn rook_cannon_bonus(board: &Board, red: bool,
+                      rooks: &[(i32,i32)], rn: usize,
+                      cannons: &[(i32,i32)], cn: usize) -> i32 {
+    let mut bonus = 0i32;
+    for ri in 0..rn {
+        let (rr, rc) = rooks[ri];
+        for ci in 0..cn {
+            let (cr, cc) = cannons[ci];
+            if cc != rc { continue; }
+            // 检查中间是否有子
+            let (lo, hi) = if rr < cr { (rr+1, cr) } else { (cr+1, rr) };
+            let mut clear = true;
+            for mid in lo..hi {
+                if board[idx(mid, rc)] != 0 { clear = false; break; }
+            }
+            if !clear { continue; }
+            // 车在炮后面 = 车更靠近己方底线
+            let rook_behind = if red { rr > cr } else { rr < cr };
+            if rook_behind { bonus += 15; } else { bonus += 10; }
+        }
+    }
+    bonus
+}
+
+/// Step 28 (R5): 主动权
+/// 攻击方在敌半场的子力数 × 8，净差值。
+fn initiative_bonus(board: &Board, red_king: (i32,i32), blk_king: (i32,i32),
+                     red_rooks: &[(i32,i32)], rn_rr: usize,
+                     red_cannons: &[(i32,i32)], rn_rc: usize,
+                     red_horses: &[(i32,i32)], rn_rh: usize,
+                     blk_rooks: &[(i32,i32)], rn_br: usize,
+                     blk_cannons: &[(i32,i32)], rn_bc: usize,
+                     blk_horses: &[(i32,i32)], rn_bh: usize) -> i32 {
+    let mut red_in = 0i32;
+    let mut blk_in = 0i32;
+    for i in 0..rn_rr { if red_rooks[i].0 <= 4 { red_in += 1; } }
+    for i in 0..rn_rc { if red_cannons[i].0 <= 4 { red_in += 1; } }
+    for i in 0..rn_rh { if red_horses[i].0 <= 4 { red_in += 1; } }
+    for i in 0..rn_br { if blk_rooks[i].0 >= 5 { blk_in += 1; } }
+    for i in 0..rn_bc { if blk_cannons[i].0 >= 5 { blk_in += 1; } }
+    for i in 0..rn_bh { if blk_horses[i].0 >= 5 { blk_in += 1; } }
+    let _ = (red_king, blk_king);
+    (red_in - blk_in) * 8
 }
 
 
