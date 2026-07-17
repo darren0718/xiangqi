@@ -397,3 +397,25 @@ Benchmark 局面（time_limit=0 走内部默认 8s，5 局面全部搜到 max_de
 - 深度：案例 2 -1、案例 4 -1（SPEC 5.1 ≤1 层容差内）
 - Regression S1/S2/S3 全绿；`cargo test` 14 通过；`crosscheck.js` 通过；`stop-consistency` 8/8 通过
 - 意义：SE 让 TT 决策的关键 move 得到额外深度，提高战术精度；节点省下来是因为很多分支被 SE 提前证明非最佳
+
+## v5-p11-book204 (Step 18 — SPEC E1 · 开局库扩容 81→204)
+**内容**：
+- `rust-engine/data/opening-book.txt`：从 81 主流开局扩到 **204 变化**
+- 新增覆盖：
+  - 中炮 vs 屏风马 第 7-10 手深入变化（平炮兑车/两头蛇/急进中兵/左边马/五九炮）
+  - 五七炮进三兵、反宫马深入、顺炮直车-横车、列炮完整变化
+  - 仙人指路/飞相/起马/过宫炮/士角炮/挺兵一九 深入
+  - 镜像右中炮变化
+  - AI 执黑更多中短前缀（前 3-5 手命中即可切主流）
+- 修复原库 L12 一处非法（`7,4-3,4` 未解将）
+- 新增 `/tmp/verify-book.js`：可选校验器，用 JS chess.js 逐条判合法
+
+**验收**：
+- `node /tmp/verify-book.js` 204/204 全合法
+- `cargo test --release` 14/14 通过
+- `crosscheck.js` 通过
+- `handpick-cases.js` S1/S2/S3 全绿（新库确保红右马屏风分支能触发 S3 的"动 3 个大子"要求）
+- `stop-consistency.js` 8/8 通过
+- Benchmark 与 Step 15 完全一致（5 局面全部走过开局范围，不受库大小影响）
+
+**意义**：AI 前 8-10 手命中主流开局的概率大幅提升；开局阶段少犯错 = 中残局起点更好。
