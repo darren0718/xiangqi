@@ -335,3 +335,38 @@ Benchmark 局面（time_limit=0 走内部默认 8s，5 局面全部搜到 max_de
 - 总时间 17,143ms → 17,201ms（+0.3%，push/pop 开销可忽略）
 - Regression S1/S2/S3 全绿；`cargo test` 14 通过；`crosscheck.js` 通过
 - 意义：极端残局（车马炮 vs 车马炮 无进展）终于会判和，避免虚假 mate 陷阱
+
+## v5-p9-safestop (Step 14 — 关键正确性修复 · stop 中途返回值污染)
+**背景**：用户发现潜在 bug —— 时间到中途 stop 时，返回的 bestMove 未必是"已完成的最深层"的最优。
+
+**代码分析**：
+`ai_move` 的 iterative deepening 主循环里，本轮 negamax 若被 `ctx.stop` 中途打断会返回 alpha
+（partial fail-low 值）。老代码然后仍执行 `best_val = val` 和刷新 TT-root 里的 best_move，
+导致返回的走法**来自本轮部分搜索的结果，可能远差于上一层完整搜索**。
+
+**修复**：在本轮 negamax 返回后立即 `if ctx.stop { break; }`。这样：
+- **本轮完整完成** → 正常刷新 best_val / best_move / PV / TT-root
+- **本轮被打断** → 保留上一层的 best_val / best_move / PV，直接退出迭代
+
+**新增回归测试** `tests/stop-consistency.js`：同一中局局面用 8 种时间预算（50ms～1500ms）逐一采样，断言：
+1. 返回的 depth == 最后一次 progress 汇报的 depth（即"完整完成的层"）
+2. 返回的 bestMove == 最后一次 progress 的 bestMove
+
+**验证对比**（同一 8-move 中局）：
+
+| 预算 | 修复前返回 | 修复后返回 | 长搜索真值 |
+|---|---|---|---|
+| 50ms  | d=8 (6,4,4,4) sc=125 ✗ | d=7 (5,4,4,4) sc=65 ✓ | (5,4,4,4) |
+| 100ms | d=10 (6,4,4,4) sc=118 ✗ | d=9 (5,4,4,4) sc=58 ✓ | (5,4,4,4) |
+| 200ms | d=10 (6,4,4,4) sc=118 ✗ | d=9 (5,4,4,4) sc=58 ✓ | (5,4,4,4) |
+| 400~1500ms | (5,4,4,4) ✓（凑巧对） | (5,4,4,4) ✓ | (5,4,4,4) |
+| 长 6s | d=12 (5,4,4,4) sc=53 | d=12 (5,4,4,4) sc=53 | (5,4,4,4) |
+
+**结论**：短时间预算（AI 快回招）下修复前会返回完全错误的走法（选 6,4,4,4 兵五进一而非 5,4,4,4 兵七进一）。
+5 局面 benchmark 未变（这些局面全部走完 max_depth 无中途 stop）。
+
+**Benchmark**：与 Step 13 完全一致（本次修复只影响"stop 打断"路径，不改变正常搜索行为）
+- 总时间 17,201ms
+- 总节点 16.9M
+- Regression S1/S2/S3 全绿；`cargo test` 14 通过；`crosscheck.js` 通过
+- **新增** `tests/stop-consistency.js` 8/8 通过

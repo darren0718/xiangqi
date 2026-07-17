@@ -369,9 +369,8 @@ fn negamax(
         let (fr, fc, tr, tc) = mv;
         let is_cap = board[idx(tr,tc)] != 0;
         if futile && !is_cap && !in_chk && moves_done > 0 { continue; }
-        // Step 9B: Late Move Pruning 暂时禁用（象棋分支因子小、regression S2 敏感），
-        // 保留占位以便后续再评估阈值
-        // if !is_pv && !in_chk && !is_cap && depth <= 2 && moves_done > 0 { ... }
+        // Step 9B: LMP 保留占位；反复实验发现象棋分支因子小、quiet move 相对稀
+        // 每次触发都会导致 bestMove 变差；暂不启用
         let u = crate::rules::make_move_zh(board, fr, fc, tr, tc, &mut ctx.current_hash, &ctx.z);
         // 记录本 ply 走的着（供子层 counter 使用）
         if (ply as usize) < ply_stack.len() { ply_stack[ply as usize] = Some(mv); } else { ply_stack.push(Some(mv)); }
@@ -562,6 +561,10 @@ pub fn ai_move(
             alpha = -INF; beta = INF;
             val = negamax(ctx, &mut board, depth, alpha, beta, ai_is_red, 0, &mut killers, &mut counter_moves, &mut ply_stack, true, true, &rep_count);
         }
+        // ✅ 关键修复：本轮若被 stop 中途打断，`val` 是部分搜索的下界（negamax 内 `if ctx.stop { return alpha; }`），
+        //             不代表"完成一整层的最优评估"。丢弃本轮结果，退出迭代，保留上一层的 best_val / best_move / PV。
+        if ctx.stop { break; }
+        // 本轮完整完成，才刷新 best_val / best_move / PV
         best_val = val;
         let root_hash = ctx.current_hash;
         if let Some(tte) = tt_get(ctx, root_hash) {
