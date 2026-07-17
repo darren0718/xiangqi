@@ -6,7 +6,7 @@ pub fn book_move(_board: &Board, ai_is_red: bool, hist: &[(i32,i32,i32,i32)], rn
     #[inline] fn rand_next(x: &mut u64) -> u64 { let mut v=*x; v^=v<<13; v^=v>>7; v^=v<<17; *x=v; v }
     #[inline] fn pick<T: Copy>(list: &[T], rng: &mut u64) -> T { let n = list.len() as u64; list[(rand_next(rng) % n) as usize] }
     if hist.is_empty() && ai_is_red {
-        let ops = [(7,7,7,4),(7,1,7,4),(9,1,7,2),(9,7,7,6),(6,2,5,2),(6,6,5,6),(6,4,5,4),(9,2,7,4)];
+        let ops = [(7,7,7,4),(7,1,7,4),(9,1,7,2),(9,7,7,6),(6,2,5,2),(6,6,5,6),(9,2,7,4)];
         return Some(pick(&ops, rng));
     }
     if hist.len() == 1 && !ai_is_red {

@@ -1,29 +1,29 @@
 {
-  "timestamp": "2026-07-17T09:06:20.689Z",
-  "version": "p0.1-see",
+  "timestamp": "2026-07-17T09:26:55.314Z",
+  "version": "p0.2-eval",
   "results": [
     {
       "name": "中炮对屏风马(4步)",
       "depth": 4,
-      "nodes": 3169693,
-      "timeMs": 2715,
-      "nps": 1167474,
-      "score": 5,
+      "nodes": 4435771,
+      "timeMs": 4103,
+      "nps": 1081104,
+      "score": -10,
       "bestMove": [
-        7,
-        4,
-        7,
-        6
+        9,
+        0,
+        8,
+        0
       ],
-      "actualDepth": 12
+      "actualDepth": 11
     },
     {
       "name": "中局复杂(12步)",
       "depth": 4,
-      "nodes": 843230,
-      "timeMs": 802,
-      "nps": 1051409,
-      "score": 256,
+      "nodes": 914313,
+      "timeMs": 847,
+      "nps": 1079472,
+      "score": 252,
       "bestMove": [
         6,
         4,
@@ -35,9 +35,9 @@
     {
       "name": "顺炮横车对直车(6步)",
       "depth": 4,
-      "nodes": 5922699,
-      "timeMs": 5728,
-      "nps": 1033991,
+      "nodes": 3360185,
+      "timeMs": 3099,
+      "nps": 1084280,
       "score": -22,
       "bestMove": [
         7,
@@ -50,37 +50,37 @@
     {
       "name": "仙人指路对卒底炮(5步)",
       "depth": 4,
-      "nodes": 2444726,
-      "timeMs": 2114,
-      "nps": 1156446,
-      "score": 45,
+      "nodes": 1845302,
+      "timeMs": 1591,
+      "nps": 1159838,
+      "score": 69,
       "bestMove": [
         2,
-        7,
-        2,
-        6
+        4,
+        5,
+        4
       ],
       "actualDepth": 12
     },
     {
       "name": "中炮屏风马(d5深度)",
       "depth": 5,
-      "nodes": 9605717,
-      "timeMs": 8942,
-      "nps": 1074225,
-      "score": 126,
+      "nodes": 26237908,
+      "timeMs": 23760,
+      "nps": 1104289,
+      "score": 122,
       "bestMove": [
-        9,
-        7,
-        7,
-        6
+        5,
+        4,
+        4,
+        4
       ],
-      "actualDepth": 11
+      "actualDepth": 12
     }
   ],
   "totals": {
-    "nodes": 21986065,
-    "timeMs": 20301,
-    "nps": 1083004
+    "nodes": 36793479,
+    "timeMs": 33400,
+    "nps": 1101601
   }
 }

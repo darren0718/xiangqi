@@ -113,7 +113,7 @@ fn quiesce(
 ) -> i32 {
     ctx.nodes += 1;
     let in_chk = in_check(board, red_to_move);
-    let stand_pat = if red_to_move { evaluate(board) } else { -evaluate(board) };
+    let stand_pat = if red_to_move { evaluate(board, red_to_move) } else { -evaluate(board, red_to_move) };
     if in_chk {
         let moves = all_legal_moves(board, red_to_move);
         if moves.is_empty() { return -MATE + ply; }
@@ -199,7 +199,7 @@ fn negamax(
 
     // Razoring
     if !is_pv && !in_chk && depth <= 3 {
-        let sv = if red_to_move { evaluate(board) } else { -evaluate(board) };
+        let sv = if red_to_move { evaluate(board, red_to_move) } else { -evaluate(board, red_to_move) };
         if sv + 200 * depth < alpha {
             let qv = quiesce(ctx, board, alpha, beta, red_to_move, 0, ply);
             if qv < alpha { return qv; }
@@ -217,7 +217,7 @@ fn negamax(
     // Futility flag
     let mut futile = false;
     if !is_pv && !in_chk && depth <= 4 {
-        let sv = if red_to_move { evaluate(board) } else { -evaluate(board) };
+        let sv = if red_to_move { evaluate(board, red_to_move) } else { -evaluate(board, red_to_move) };
         let fm = 150 + 100 * depth;
         if sv + fm < alpha { futile = true; }
     }

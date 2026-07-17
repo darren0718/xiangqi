@@ -91,12 +91,17 @@ pub const PST_E: [[i32; COLS]; ROWS] = [
     [0,0,0,0,0,0,0,0,0],
 ];
 pub const PST_P_OP: [[i32; COLS]; ROWS] = [
+    // Step 3 (v5): 削弱开局中兵推进甜头，让 AI 不再单纯为 PST 分推兵五进一
+    //   原 [3][4]=10 → 4    (兵五进一后到第 4 行)
+    //   原 [4][4]=24 → 10   (兵五进二)
+    //   原 [5][4]=16 → 6    (兵五进一初次)
+    // 边兵/侧翼兵推进分数保留（配合马炮出击才需要）
     [0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0],
-    [2,0,4,0,10,0,4,0,2],
-    [8,14,18,22,24,22,18,14,8],
-    [0,10,14,18,16,18,14,10,0],
+    [2,0,4,0, 4,0,4,0,2],
+    [8,14,18,22,10,22,18,14,8],
+    [0,10,14,18, 6,18,14,10,0],
     [0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0],
@@ -178,7 +183,7 @@ fn open_file(board: &Board, col: i32, red: bool) -> bool {
     true
 }
 
-pub fn evaluate(board: &Board) -> i32 {
+pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
     let mut score = 0i32;
     let mut red_ae = 0; let mut blk_ae = 0;
     let mut red_rooks: Vec<(i32,i32)> = Vec::with_capacity(2);
@@ -266,6 +271,41 @@ pub fn evaluate(board: &Board) -> i32 {
         if red_king.0 >= 8 { score -= 5; }
         if blk_king.0 <= 1 { score += 5; }
     }
+
+    // Step 3 (v5): 未发展惩罚 —— 仅在开局阶段 (phase==0)
+    // 大子还留在初始位置 = 拖沓，直接给负分逼 AI 出子
+    if phase == 0 {
+        score += undeveloped_penalty(board);
+    }
+
+    // Step 3 (v5): Tempo 微幅奖励，避免过度被动 (相对 side-to-move)
+    score += if red_to_move { 6 } else { -6 };
+
+    score
+}
+
+/// 大子未出动惩罚：车-15、马-12、炮-8（每个仍在原位的大子扣分）。
+/// 只在开局阶段（majors>=10）生效。
+/// 车原位：红 (9,0)/(9,8)，黑 (0,0)/(0,8)
+/// 马原位：红 (9,1)/(9,7)，黑 (0,1)/(0,7)
+/// 炮原位：红 (7,1)/(7,7)，黑 (2,1)/(2,7)
+fn undeveloped_penalty(board: &Board) -> i32 {
+    let mut score = 0;
+    // 车
+    if board[idx(9,0)] == b'R' { score -= 15; }
+    if board[idx(9,8)] == b'R' { score -= 15; }
+    if board[idx(0,0)] == b'r' { score += 15; }
+    if board[idx(0,8)] == b'r' { score += 15; }
+    // 马
+    if board[idx(9,1)] == b'H' { score -= 12; }
+    if board[idx(9,7)] == b'H' { score -= 12; }
+    if board[idx(0,1)] == b'h' { score += 12; }
+    if board[idx(0,7)] == b'h' { score += 12; }
+    // 炮
+    if board[idx(7,1)] == b'C' { score -=  8; }
+    if board[idx(7,7)] == b'C' { score -=  8; }
+    if board[idx(2,1)] == b'c' { score +=  8; }
+    if board[idx(2,7)] == b'c' { score +=  8; }
     score
 }
 

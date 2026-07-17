@@ -41,9 +41,9 @@ fn parse_move_history(flat: &[i32]) -> Vec<(i32,i32,i32,i32)> {
 // ================= 单次评估 / 走法生成（对拍用）=================
 
 #[wasm_bindgen]
-pub fn evaluate_board(flat_board: &[u8]) -> i32 {
+pub fn evaluate_board(flat_board: &[u8], red_to_move: bool) -> i32 {
     let b = parse_board(flat_board);
-    eval_evaluate(&b)
+    eval_evaluate(&b, red_to_move)
 }
 
 #[wasm_bindgen]

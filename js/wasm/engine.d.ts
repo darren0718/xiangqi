@@ -24,7 +24,7 @@ declare namespace wasm_bindgen {
 
     export function board_hash_wasm(flat_board: Uint8Array, red_to_move: boolean): string;
 
-    export function evaluate_board(flat_board: Uint8Array): number;
+    export function evaluate_board(flat_board: Uint8Array, red_to_move: boolean): number;
 
     export function game_status_str(flat_board: Uint8Array, red_to_move: boolean): string;
 
@@ -73,7 +73,7 @@ declare interface InitOutput {
     readonly ai_move_wasm: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly all_legal_moves_flat: (a: number, b: number, c: number) => [number, number];
     readonly board_hash_wasm: (a: number, b: number, c: number) => [number, number];
-    readonly evaluate_board: (a: number, b: number) => number;
+    readonly evaluate_board: (a: number, b: number, c: number) => number;
     readonly game_status_str: (a: number, b: number, c: number) => [number, number];
     readonly in_check_side: (a: number, b: number, c: number) => number;
     readonly is_legal_move_wasm: (a: number, b: number, c: number, d: number, e: number, f: number) => number;

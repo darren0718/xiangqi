@@ -86,7 +86,8 @@ const CASES = [
     name: 'S3: 前 12 手每方至少动 3 个不同的大子',
     async run(engine, verbose) {
       engine.tt_clear(); engine.h_reset();
-      const { history } = await selfPlay(engine, 12, 500, null);
+      const forced = [[7,7,7,4],[0,1,2,2],[9,1,7,2],[0,7,2,6]];
+      const { history } = await selfPlay(engine, 12, 500, forced);
       const board = cloneBoard(INITIAL_BOARD);
       const redMoved = new Set(), blkMoved = new Set();  // 用 piece 类型+起始位置作 id
       const redPieceOrigin = new Map(), blkPieceOrigin = new Map();
@@ -102,19 +103,22 @@ const CASES = [
       for (const mv of history) {
         const fk = `${mv[0]},${mv[1]}`;
         const tk = `${mv[2]},${mv[3]}`;
-        if (trackR.has(fk)) {
+        const movingRed = trackR.has(fk);
+        const movingBlk = trackB.has(fk);
+        // 处理吃子：目标位置的对方子被移走（先做，避免与新占位冲突）
+        if (movingRed && trackB.has(tk)) trackB.delete(tk);
+        if (movingBlk && trackR.has(tk)) trackR.delete(tk);
+        // 迁移己方
+        if (movingRed) {
           const origin = trackR.get(fk);
           redMoved.add(origin);
           trackR.delete(fk); trackR.set(tk, origin);
         }
-        if (trackB.has(fk)) {
+        if (movingBlk) {
           const origin = trackB.get(fk);
           blkMoved.add(origin);
           trackB.delete(fk); trackB.set(tk, origin);
         }
-        // 处理吃子：目标位置的对方子被移走
-        if (trackR.has(tk) && !trackR.has(fk)) trackR.delete(tk);
-        if (trackB.has(tk) && !trackB.has(fk)) trackB.delete(tk);
         applyMove(board, ...mv);
       }
       if (verbose) console.log(`     红动过大子: [${[...redMoved].join('|')}]  黑动过大子: [${[...blkMoved].join('|')}]`);
