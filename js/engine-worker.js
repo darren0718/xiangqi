@@ -72,7 +72,7 @@ self.onmessage = async function(e) {
   const mh = msg.moveHistory || [];
   const mhFlat = new Int32Array(mh.length * 4);
   for (let i=0; i<mh.length; i++) { mhFlat[i*4]=mh[i][0]; mhFlat[i*4+1]=mh[i][1]; mhFlat[i*4+2]=mh[i][2]; mhFlat[i*4+3]=mh[i][3]; }
-  const timeLimit = msg.timeLimit || (msg.depth>=5?3000:msg.depth>=4?1500:msg.depth>=3?600:200);
+  const timeLimit = msg.timeLimit || (msg.depth>=6?8000:msg.depth>=5?5000:msg.depth>=4?2500:msg.depth>=3?1200:400);
 
   const onProgress = (p) => {
     postMessage({

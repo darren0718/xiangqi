@@ -5,7 +5,7 @@ use crate::rules::*;
 // PST_R_OP
 pub const PST_R_OP: [[i32; COLS]; ROWS] = [
     [14,14,12,18,16,18,12,14,14],
-    [16,20,18,24,28,24,18,20,16],
+    [16,20,18,18,20,18,18,20,16],
     [12,12,12,18,20,18,12,12,12],
     [12,18,16,22,22,22,16,18,12],
     [12,14,12,18,20,18,12,14,12],
@@ -30,9 +30,9 @@ pub const PST_R_EG: [[i32; COLS]; ROWS] = {
 };
 
 pub const PST_H: [[i32; COLS]; ROWS] = [
-    [ 4, 8,16,12, 4,12,16, 8, 4],
+    [ 4, 2,16,12, 4,12,16, 2, 4],
     [ 4,10,28,16, 8,16,28,10, 4],
-    [12,14,16,20,18,20,16,14,12],
+    [12,14,22,20,18,20,22,14,12],
     [ 8,24,18,24,20,24,18,24, 8],
     [ 6,16,14,18,16,18,14,16, 6],
     [ 4,12,16,14,12,14,16,12, 4],
@@ -273,7 +273,9 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
     };
     for i in 0..n_rr { let (r,c) = red_rooks[i];
         if open_file(board, c, true) { score += 8; }
-        if c == 3 || c == 5 { score += 6; }
+        // Step 23: 车肋道加分 gate —— 只在有过河配合时鼓励车压肋线，
+        // 否则单独冲肋线 = 无配合的花拳绣腿
+        if (c == 3 || c == 5) && red_support_across >= 1 { score += 6; }
         // 沉底车：需要至少 2 个己方大子过河支援（含此车）才有价值
         if r <= 2 {
             if red_support_across >= 2 { score += 5; }
@@ -285,7 +287,7 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
     }
     for i in 0..n_br { let (r,c) = blk_rooks[i];
         if open_file(board, c, false) { score -= 8; }
-        if c == 3 || c == 5 { score -= 6; }
+        if (c == 3 || c == 5) && blk_support_across >= 1 { score -= 6; }
         if r >= 7 {
             if blk_support_across >= 2 { score -= 5; }
         }
@@ -357,13 +359,18 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
     if phase == 0 {
         score += undeveloped_penalty(board);
         score += early_cannon_solo_penalty(board);
+    } else if phase == 1 {
+        // Step 23: 开局→中局过渡不应突然失效，半衰
+        score += undeveloped_penalty(board) / 2;
+        score += early_cannon_solo_penalty(board) / 2;
     }
 
     // Step 7 (p1-tactics): 王安全 + 9 个战术模式（红-黑净分）
     score += crate::tactics::tactics_score(board);
 
-    // Step 22: 牵制评估（仅在开局阶段生效以节省开销 —— 开中局最影响出子）
-    if phase == 0 {
+    // Step 22: 牵制评估
+    // Step 23: 由"仅开局"放宽到 phase!=2，中局最需要考虑牵制
+    if phase != 2 {
         score += pinned_penalty(board, true, (red_king.0, red_king.1));
         score -= pinned_penalty(board, false, (blk_king.0, blk_king.1));
     }

@@ -4,7 +4,7 @@
  */
 let board, currentTurn, selected, legalTargets, history, gameOver, positionHistory;
 let playerRed = true;
-let aiDepth = 2;
+let aiDepth = 4;
 let lastMove = null;
 let editMode = false;
 let editPiece = null;
