@@ -29,6 +29,7 @@ pub struct SearchCtx {
     pub current_hash: u64,  // Step 4: 增量维护当前根+搜索路径的 hash
     pub path_hash: Vec<u64>,  // Step 5: 搜索路径 hash 栈，用于全路径重复检测
     pub path_gives_check: Vec<bool>,  // Step 5: 每 ply 是否将军对方（用于长将判负）
+    pub deadline_ms: f64,  // Step 6: 绝对时间戳截止；超过则设置 stop
 }
 
 impl SearchCtx {
@@ -42,6 +43,7 @@ impl SearchCtx {
             current_hash: 0,
             path_hash: Vec::with_capacity(128),
             path_gives_check: Vec::with_capacity(128),
+            deadline_ms: 0.0,
         }
     }
     pub fn clear_tt(&mut self) { for e in self.tt.iter_mut() { *e = TTEntry::default(); } }
@@ -119,6 +121,10 @@ fn quiesce(
     mut alpha: i32, beta: i32, red_to_move: bool, depth: i32, ply: i32,
 ) -> i32 {
     ctx.nodes += 1;
+    if (ctx.nodes & 0xFFF) == 0 {
+        if ctx.deadline_ms > 0.0 && js_sys::Date::now() > ctx.deadline_ms { ctx.stop = true; }
+    }
+    if ctx.stop { return alpha; }
     let in_chk = in_check(board, red_to_move);
     let stand_pat = if red_to_move { evaluate(board, red_to_move) } else { -evaluate(board, red_to_move) };
     if in_chk {
@@ -184,6 +190,11 @@ fn negamax(
     rep_count: &HashMap<u64, i32>,
 ) -> i32 {
     ctx.nodes += 1;
+    // Step 6: 每 4096 节点检查一次时间/停止信号
+    if (ctx.nodes & 0xFFF) == 0 {
+        if ctx.deadline_ms > 0.0 && js_sys::Date::now() > ctx.deadline_ms { ctx.stop = true; }
+    }
+    if ctx.stop { return alpha; }
     // Step 5: 全路径 + 历史重复检测
     // 1) 搜索路径中出现同一 hash → 立即返回 0（避免虚假 PV）
     // 2) 历史 rep_count 已 ≥1 且再重复 → 也视为循环
@@ -411,10 +422,12 @@ pub fn ai_move(
     ctx.current_hash = board_hash(&ctx.z, &board, ai_is_red);
     ctx.path_hash.clear();
     ctx.path_gives_check.clear();
+    // Step 6: 硬性截止时间戳（3× time_limit 是老的兜底停止条件的上限）
     let time_limit = time_limit_ms.unwrap_or_else(|| {
         if max_depth >= 5 { 8000.0 } else if max_depth >= 4 { 4000.0 } else if max_depth >= 3 { 1500.0 } else { 500.0 }
     });
     ctx.time_limit_ms = time_limit;
+    ctx.deadline_ms = ctx.start_time_ms + time_limit * 3.0;  // 硬性截止（正常情况下不到就 break）
     ctx.stop = false; ctx.nodes = 0;
 
     // 开局库

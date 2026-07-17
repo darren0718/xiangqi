@@ -108,3 +108,26 @@ vs p0.2 (Step 3)：节点数完全一致（增量 hash 语义正确），NPS +1.
 vs Step 4：NPS -1.8%（路径栈维护成本），节点数 -9%（重复剪枝生效）。
 ## Regression Cases（v5-p2.5-reppath）
 - ✅ S1/S2/S3 全部通过
+
+## v5-p2.4-stop (Step 6 完成 — Phase A 完成 🎉)
+stop 信号细粒度检查：
+- SearchCtx 加 deadline_ms（绝对时间戳）
+- ai_move 入口设 deadline = start + time_limit*3（硬性截止）
+- negamax/quiesce 每 4096 节点检查 js_sys::Date::now() > deadline → stop=true
+- 立即返回 alpha（保守值），避免超时后仍占用大量时间
+
+**Phase A 累计成果**
+| 版本 | NPS | 5局面总时(ms) | 总节点 | Regression |
+|---|---:|---:|---:|---|
+| v4 baseline | 1,172,788 | 29,876 | 35.0M | S1❌ S2❌ S3✅ |
+| p0.1-see | 1,083,004 | 20,301 | 22.0M | S2 修复 ✓ |
+| p0.2-eval | 1,101,601 | 33,400 | 36.8M | S1/S3 修复 ✓ |
+| p2.3-inchash | 1,116,578 | 32,952 | 36.8M | 全绿 |
+| p2.5-reppath | 1,096,067 | 30,550 | 33.5M | 全绿 |
+| p2.4-stop | 1,089,435 | 30,736 | 33.5M | 全绿 |
+
+**Phase A 交付**：
+- 用户 3 个可见症状全部解决（S1 兵五进一 / S2 炮跨河吃卒 / S3 大子出动）
+- NPS 从 1.17M → 1.09M（-7%，评估复杂化的合理成本）
+- 总节点数 -4%（SEE + 全路径重复剪枝生效）
+- 新增能力：SEE、未发展惩罚、Tempo、增量 hash、路径重复检测、长将判负、细粒度 stop
