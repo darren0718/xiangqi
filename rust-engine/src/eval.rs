@@ -236,16 +236,44 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
     for i in 0..n_bh { let (r,c) = blk_horses[i]; blk_mob += horse_legs(board, r, c) * 2; }
     score += red_mob - blk_mob;
     score += (red_ae - blk_ae) * 15;
-    // 车
+    // 车（Step 21: 沉底车奖励改成"有配合子力"才生效；无配合的孤军车反罚）
+    // 己方"配合子力"= 己方另一车/马/炮 也在敌方半场
+    let red_support_across = {
+        // 红方视角"敌方半场" = r <= 4
+        let mut cnt = 0;
+        for i in 0..n_rr { if red_rooks[i].0 <= 4 { cnt += 1; } }
+        for i in 0..n_rh { if red_horses[i].0 <= 4 { cnt += 1; } }
+        for i in 0..n_rc { if red_cannons[i].0 <= 4 { cnt += 1; } }
+        cnt
+    };
+    let blk_support_across = {
+        let mut cnt = 0;
+        for i in 0..n_br { if blk_rooks[i].0 >= 5 { cnt += 1; } }
+        for i in 0..n_bh { if blk_horses[i].0 >= 5 { cnt += 1; } }
+        for i in 0..n_bc { if blk_cannons[i].0 >= 5 { cnt += 1; } }
+        cnt
+    };
     for i in 0..n_rr { let (r,c) = red_rooks[i];
         if open_file(board, c, true) { score += 8; }
         if c == 3 || c == 5 { score += 6; }
-        if r <= 2 { score += 5; }
+        // 沉底车：需要至少 2 个己方大子过河支援（含此车）才有价值
+        if r <= 2 {
+            if red_support_across >= 2 { score += 5; }
+        }
+        // 孤军深入车：车进敌方 3 行内（r ≤ 3）但过河友军 ≤ 1（只有本车） → 大负分
+        if r <= 3 && red_support_across <= 1 && phase != 2 {
+            score -= 25;
+        }
     }
     for i in 0..n_br { let (r,c) = blk_rooks[i];
         if open_file(board, c, false) { score -= 8; }
         if c == 3 || c == 5 { score -= 6; }
-        if r >= 7 { score -= 5; }
+        if r >= 7 {
+            if blk_support_across >= 2 { score -= 5; }
+        }
+        if r >= 6 && blk_support_across <= 1 && phase != 2 {
+            score += 25;
+        }
     }
     // 炮
     for i in 0..n_rc { let (r,c) = red_cannons[i];
