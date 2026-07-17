@@ -375,6 +375,17 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
         score -= pinned_penalty(board, false, (blk_king.0, blk_king.1));
     }
 
+    // Step 24 (R1): 无根子惩罚
+    score += hanging_penalty(board, true, &red_rooks[..n_rr], n_rr);
+    score += hanging_penalty(board, true, &red_cannons[..n_rc], n_rc);
+    score += hanging_penalty(board, true, &red_horses[..n_rh], n_rh);
+    score += hanging_penalty(board, true, &red_pawns[..n_rp], n_rp);
+    score -= hanging_penalty(board, false, &blk_rooks[..n_br], n_br);
+    score -= hanging_penalty(board, false, &blk_cannons[..n_bc], n_bc);
+    score -= hanging_penalty(board, false, &blk_horses[..n_bh], n_bh);
+    score -= hanging_penalty(board, false, &blk_pawns[..n_bp], n_bp);
+
+
     // Step 3 (v5): Tempo 微幅奖励，避免过度被动 (相对 side-to-move)
     score += if red_to_move { 6 } else { -6 };
 
@@ -462,5 +473,108 @@ fn early_cannon_solo_penalty(board: &Board) -> i32 {
     score
 }
 
+/// Step 24 (R1): 无根子惩罚
+/// 遍历己方大子，检查是否被保护。无保护 + 对方能攻击 → 扣分。
+/// 保护判定：临时移除该子 + 王，用 square_attacked 检查剩余子力是否攻击该格。
+/// 排除王是因为 square_attacked 的 飞将（king face2face）会误判所有同列格。
+fn hanging_penalty(board: &Board, red: bool, pieces: &[(i32,i32)], n: usize) -> i32 {
+    if n == 0 { return 0; }
+    let mut penalty = 0i32;
+    let king = if red { b'K' } else { b'k' };
+
+    for i in 0..n {
+        let (r, c) = pieces[i];
+        let p = board[idx(r, c)];
+        if p == 0 { continue; }
+
+        // 临时移除该子，检查保护
+        let mut tmp = *board;
+        tmp[idx(r, c)] = 0;
+        let defended = square_attacked(&tmp, r, c, red);
+        let real_defended = if defended {
+            // 排除飞将误判：找到王，移除王，再查
+            let mut king_pos = None;
+            for rr in 0..ROWS as i32 {
+                for cc in 0..COLS as i32 {
+                    if tmp[idx(rr, cc)] == king { king_pos = Some((rr, cc)); break; }
+                }
+                if king_pos.is_some() { break; }
+            }
+            if let Some((kr, kc)) = king_pos {
+                tmp[idx(kr, kc)] = 0;
+                square_attacked(&tmp, r, c, red)
+            } else {
+                true
+            }
+        } else {
+            false
+        };
+
+        if real_defended { continue; }
+
+        if !square_attacked(board, r, c, !red) { continue; }
+
+        let t = piece_type_lower(p);
+        penalty -= match t {
+            b'r' => 30,
+            b'c' => 22,
+            b'h' => 18,
+            b'p' => {
+                if red && r <= 4 { 8 } else if !red && r >= 5 { 8 } else { 0 }
+            }
+            _ => 0,
+        };
+    }
+    penalty
+}
+
+
 // squareAttacked wrapper for search hot path
 pub use crate::rules::square_attacked;
+
+
+#[cfg(test)]
+mod eval_tests {
+    use super::*;
+    use crate::board::*;
+
+    fn empty() -> Board { [0u8; NSQ] }
+    fn place(b: &mut Board, r: i32, c: i32, p: u8) { b[idx(r,c)] = p; }
+
+    #[test]
+    fn hanging_rook_penalized() {
+        let mut b = empty();
+        place(&mut b, 9, 4, b'K');
+        place(&mut b, 1, 4, b'k');
+        place(&mut b, 0, 0, b'R');
+        place(&mut b, 0, 8, b'r');  // 黑车同线攻击，路径通畅
+        let rooks = [(0i32,0i32); 2];
+        let p = hanging_penalty(&b, true, &rooks[..1], 1);
+        assert_eq!(p, -30, "无根红车应扣 30，实际 {}", p);
+    }
+
+    #[test]
+    fn protected_rook_not_penalized() {
+        let mut b = empty();
+        place(&mut b, 8, 4, b'K');
+        place(&mut b, 0, 4, b'k');
+        place(&mut b, 9, 0, b'R');
+        place(&mut b, 9, 4, b'R');  // 同线车保护
+        let rooks = [(9i32,0i32), (9i32,4i32)];
+        let p = hanging_penalty(&b, true, &rooks[..1], 1);
+        assert_eq!(p, 0, "有保护的 rook 不应扣分，实际 {}", p);
+    }
+
+    #[test]
+    fn hanging_horse_penalized() {
+        let mut b = empty();
+        place(&mut b, 9, 4, b'K');
+        place(&mut b, 0, 3, b'k');
+        place(&mut b, 4, 4, b'H');
+        place(&mut b, 4, 0, b'r');  // 黑车同线攻击
+        let horses = [(4i32,4i32); 2];
+        let p = hanging_penalty(&b, true, &horses[..1], 1);
+        assert_eq!(p, -18, "无根红马应扣 18，实际 {}", p);
+    }
+}
+
