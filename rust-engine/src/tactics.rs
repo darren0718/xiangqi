@@ -145,12 +145,12 @@ fn cannons_score(board: &Board, cans: &[(i32,i32)], ekr: i32, ekc: i32, red: boo
             for mid in lo..hi {
                 if board[idx(mid, ekc)] != 0 { empty = false; break; }
             }
-            if empty { s += 30; }
+            if empty { s += 60; }  // Step 20a: 空头炮 30 → 60，让被打方大幅优先防守
         }
         same_col[c as usize] += 1;
     }
-    // 重炮：两炮同列且此列即对方王列 +25
-    if ekc >= 0 && same_col[ekc as usize] >= 2 { s += 25; }
+    // 重炮：两炮同列且此列即对方王列 +40（Step 20a: 25 → 40）
+    if ekc >= 0 && same_col[ekc as usize] >= 2 { s += 40; }
     s
 }
 

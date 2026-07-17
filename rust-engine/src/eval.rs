@@ -289,6 +289,7 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
     }
     if phase == 0 {
         score += undeveloped_penalty(board);
+        score += early_cannon_solo_penalty(board);
     }
 
     // Step 7 (p1-tactics): 王安全 + 9 个战术模式（红-黑净分）
@@ -322,6 +323,34 @@ fn undeveloped_penalty(board: &Board) -> i32 {
     if board[idx(7,7)] == b'C' { score -=  8; }
     if board[idx(2,1)] == b'c' { score +=  8; }
     if board[idx(2,7)] == b'c' { score +=  8; }
+    score
+}
+
+/// Step 20b: 开局炮孤军惩罚
+/// 己方炮已经跨河（红 r<=4，黑 r>=5），但己方所有车都还没动
+/// → 每门跨河炮 -18（让 AI 不会在马车都没出的时候就冲炮吃兵）
+fn early_cannon_solo_penalty(board: &Board) -> i32 {
+    let mut score = 0;
+    // 红方
+    let r_rooks_home = board[idx(9,0)] == b'R' && board[idx(9,8)] == b'R';
+    let r_horses_home = board[idx(9,1)] == b'H' && board[idx(9,7)] == b'H';
+    if r_rooks_home && r_horses_home {
+        for r in 0..=4 as i32 {
+            for c in 0..COLS as i32 {
+                if board[idx(r,c)] == b'C' { score -= 18; }
+            }
+        }
+    }
+    // 黑方（对称）
+    let b_rooks_home = board[idx(0,0)] == b'r' && board[idx(0,8)] == b'r';
+    let b_horses_home = board[idx(0,1)] == b'h' && board[idx(0,7)] == b'h';
+    if b_rooks_home && b_horses_home {
+        for r in 5..ROWS as i32 {
+            for c in 0..COLS as i32 {
+                if board[idx(r,c)] == b'c' { score += 18; }
+            }
+        }
+    }
     score
 }
 
