@@ -506,9 +506,16 @@ pub fn ai_move(
     let mut last_depth_reached = 0i32;
     let mut last_pv: Vec<(i32,i32,i32,i32)> = Vec::new();
     let mut cb = on_progress;
+    // Step 11 (v5-p6-tm): 动态时间管理状态
+    let mut prev_best_move: Option<(i32,i32,i32,i32)> = None;
+    let mut prev_best_val: Option<i32> = None;
+    let mut last_iter_ms: f64 = 1.0;
+    let mut time_extend: f64 = 1.0;
+    let mut extend_used = false;  // best move 变化 ×1.5 只做 1 次
 
     for depth in 1..=hard_depth_cap {
         if ctx.stop { break; }
+        let iter_start_ms = now_ms() - ctx.start_time_ms;
         // Step 9A: 多阶段 Aspiration Window，[60, 200, 800, INF] 渐宽
         // 相比单一 60 → INF 的 2 阶段，命中率更高时窗更窄（剪枝更狠）；
         // 命中率低时逐步放宽，避免直接 fail-hard 到 INF 浪费一次全窗搜索。
@@ -543,7 +550,33 @@ pub fn ai_move(
             f(depth, ctx.nodes, elapsed, sc, &pv, bm);
         }
         if best_val.abs() > MATE_THRESHOLD { break; }
-        if elapsed > time_limit && depth >= max_depth { break; }
+
+        // Step 11 (v5-p6-tm): 动态时间管理
+        // 1) 明显局面（|score| > 500 且已达 max_depth）→ 预算 × 0.7 提前退出
+        // 2) bestMove 变了（不稳定）→ 剩余预算 × 1.5（最多一次）
+        // 3) bestVal 下降超过 30（局势下滑）→ 剩余预算 × 1.3
+        // 4) 若下一层预计耗时 > 剩余预算 → 提前结束
+        let cur_iter_ms = elapsed - iter_start_ms;
+        if cur_iter_ms > 1.0 { last_iter_ms = cur_iter_ms; }
+        let cur_best = best_move;
+        // (2) best move 不稳定 → 延长
+        if !extend_used && depth >= 3 && prev_best_move.is_some() && cur_best != prev_best_move {
+            time_extend *= 1.5; extend_used = true;
+        }
+        // (3) 评分下滑
+        if let Some(pv) = prev_best_val {
+            if best_val - pv < -30 { time_extend *= 1.3; }
+        }
+        // (1) 明显局面提前收
+        let obvious = best_val.abs() > 500 && depth >= max_depth;
+        let budget = time_limit * time_extend * if obvious { 0.7 } else { 1.0 };
+
+        prev_best_move = cur_best;
+        prev_best_val = Some(best_val);
+
+        if elapsed > budget && depth >= max_depth { break; }
+        // 预测下一层耗时：象棋分支 EBF 约 3~5，取 3 保守
+        if depth >= max_depth && elapsed + last_iter_ms * 3.0 > budget { break; }
         if elapsed > time_limit * 3.0 { break; }
     }
 
