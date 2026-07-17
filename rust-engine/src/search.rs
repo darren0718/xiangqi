@@ -32,6 +32,9 @@ pub struct SearchCtx {
     pub deadline_ms: f64,  // Step 6: 绝对时间戳截止；超过则设置 stop
     pub tt_age: u8,  // Step 9A: TT aging；每次 ai_move 递增，旧 age 条目优先淘汰
     pub eval_stack: Vec<i32>,  // Step 9B: 每 ply 的静态评估（negamax 视角），用于 improving 启发
+    // A3: 60 步无吃子判和（半手 clock 栈；每 make push，每 unmake pop）
+    // 0 = 上一手是吃子；否则递增。当栈顶 >= 120（60 全手）→ 视为和棋 = 0
+    pub halfmove_clock: Vec<i32>,
 }
 
 impl SearchCtx {
@@ -48,6 +51,7 @@ impl SearchCtx {
             deadline_ms: 0.0,
             tt_age: 0,
             eval_stack: vec![0; 256],
+            halfmove_clock: Vec::with_capacity(128),
         }
     }
     pub fn clear_tt(&mut self) { for e in self.tt.iter_mut() { *e = TTEntry::default(); } }
@@ -80,6 +84,14 @@ fn tt_put(ctx: &mut SearchCtx, h: u64, d: i32, f: u8, v: i32, mv: (i32,i32,i32,i
 }
 
 #[inline(always)] fn h_key(fr: i32, fc: i32, tr: i32, tc: i32) -> u32 { (fr*1000 + fc*100 + tr*10 + tc) as u32 }
+
+/// A3: 更新 halfmove_clock 栈 —— 吃子重置为 0，非吃子在上一层基础上 +1
+#[inline]
+fn push_halfmove(ctx: &mut SearchCtx, captured: u8) {
+    let prev = *ctx.halfmove_clock.last().unwrap_or(&0);
+    let new = if captured != 0 { 0 } else { prev + 1 };
+    ctx.halfmove_clock.push(new);
+}
 
 fn is_valid_move(board: &mut Board, red: bool, mv: (i32,i32,i32,i32)) -> bool {
     let (fr, fc, tr, tc) = mv;
@@ -145,9 +157,11 @@ fn quiesce(
                 let u = crate::rules::make_move_zh(board, fr, fc, tr, tc, &mut ctx.current_hash, &ctx.z);
                 ctx.path_hash.push(ctx.current_hash);
                 ctx.path_gives_check.push(in_check(board, !red_to_move));
+                push_halfmove(ctx, u.captured);
                 let val = -quiesce(ctx, board, -beta, -alpha, !red_to_move, depth-1, ply+1);
                 ctx.path_hash.pop();
                 ctx.path_gives_check.pop();
+                ctx.halfmove_clock.pop();
                 crate::rules::unmake_move_zh(board, u, &mut ctx.current_hash, &ctx.z);
                 if val > best { best = val; }
                 if best > alpha { alpha = best; }
@@ -177,9 +191,11 @@ fn quiesce(
         let u = crate::rules::make_move_zh(board, fr, fc, tr, tc, &mut ctx.current_hash, &ctx.z);
         ctx.path_hash.push(ctx.current_hash);
         ctx.path_gives_check.push(in_check(board, !red_to_move));
+        push_halfmove(ctx, u.captured);
         let val = -quiesce(ctx, board, -beta, -alpha, !red_to_move, depth-1, ply+1);
         ctx.path_hash.pop();
         ctx.path_gives_check.pop();
+        ctx.halfmove_clock.pop();
         crate::rules::unmake_move_zh(board, u, &mut ctx.current_hash, &ctx.z);
         if val >= beta { return beta; }
         if val > alpha { alpha = val; }
@@ -236,6 +252,8 @@ fn negamax(
         }
         // 历史（走过的实际棋谱）重复
         if *rep_count.get(&ck).unwrap_or(&0) >= 1 { return 0; }
+        // A3: 60 步无吃子判和（120 半手）
+        if *ctx.halfmove_clock.last().unwrap_or(&0) >= 120 { return 0; }
     }
     if alpha < -MATE + ply { alpha = -MATE + ply; }
     if beta > MATE - ply - 1 { beta = MATE - ply - 1; }
@@ -361,6 +379,7 @@ fn negamax(
         // Step 5: 记录路径信息
         ctx.path_hash.push(ctx.current_hash);
         ctx.path_gives_check.push(gc);
+        push_halfmove(ctx, u.captured);
         moves_done += 1;
         let sd = depth - 1;
         let val;
@@ -385,6 +404,7 @@ fn negamax(
         crate::rules::unmake_move_zh(board, u, &mut ctx.current_hash, &ctx.z);
         ctx.path_hash.pop();
         ctx.path_gives_check.pop();
+        ctx.halfmove_clock.pop();
         if (ply as usize) < ply_stack.len() { ply_stack[ply as usize] = None; }
         if val > best_val {
             best_val = val; best_move = mv;
@@ -485,6 +505,9 @@ pub fn ai_move(
 
     // Repetition detection
     let mut rep_count: HashMap<u64, i32> = HashMap::new();
+    // A3: 从 move_history 计算初始 halfmove_clock（自上次吃子起累计的半手）
+    ctx.halfmove_clock.clear();
+    let mut hmc = 0i32;
     if let Some(mh) = move_history {
         if !mh.is_empty() {
             let mut tb = initial_board();
@@ -492,6 +515,8 @@ pub fn ai_move(
             *rep_count.entry(board_hash(&ctx.z, &tb, turn)).or_insert(0) += 1;
             for &(fr,fc,tr,tc) in mh.iter() {
                 if tb[idx(fr,fc)] != 0 {
+                    // 吃子则重置；否则 +1
+                    if tb[idx(tr,tc)] != 0 { hmc = 0; } else { hmc += 1; }
                     make_move(&mut tb, fr, fc, tr, tc);
                     turn = !turn;
                     let kh = board_hash(&ctx.z, &tb, turn);
@@ -500,6 +525,7 @@ pub fn ai_move(
             }
         }
     }
+    ctx.halfmove_clock.push(hmc);
 
     let mut alpha; let mut beta;
     let hard_depth_cap = max_depth + 8;
