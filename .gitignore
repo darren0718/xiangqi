@@ -13,3 +13,6 @@ node_modules/
 
 # Benchmark debug artifacts (keep baseline/results, ignore temp)
 benchmark-*.tmp.json
+
+# 后端对局日志（本地记录，勿入库）
+logs/

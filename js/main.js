@@ -13,6 +13,27 @@ let aiThinking = false;
 let aiSearchPending = false;
 let pvArrows = null; // 搜索中实时 PV 箭头：[[fr,fc,tr,tc], ...]
 
+
+// ========== 后端对局日志（可选：需 node server.js 运行） ==========
+let currentGameId = null;
+let currentPly = 0;
+let pendingAiInfo = null; // 由 worker 'result' 消息填充，被下一次 AI 的 doMove 消费
+function _genGameId() {
+  const t = Date.now().toString(36);
+  const r = Math.random().toString(36).slice(2, 8);
+  return t + '-' + r;
+}
+function postGameLog(pathname, body) {
+  try {
+    fetch(pathname, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      keepalive: true,
+    }).catch(() => {}); // 静默失败：无后端时不影响游戏
+  } catch (_) { /* 静默 */ }
+}
+
 const canvas = document.getElementById('board');
 const ctx = (() => {
   const dpr = window.devicePixelRatio || 1;
@@ -77,6 +98,13 @@ function initWorker() {
         searchContentEl.innerHTML += '<br>✓ 完成';
       }
       render();
+      // 记录 AI 搜索详情，交给下一次 doMove 打点
+      pendingAiInfo = {
+        score: (msg.score != null) ? msg.score : null,
+        depth: (msg.depth != null) ? msg.depth : null,
+        nodes: (msg.nodes != null) ? msg.nodes : null,
+        timeMs: (msg.timeMs != null) ? msg.timeMs : (msg.time != null ? msg.time : null),
+      };
       if (msg.bestMove && !gameOver) {
         doMove(msg.bestMove[0], msg.bestMove[1], msg.bestMove[2], msg.bestMove[3]);
       } else if (!msg.bestMove && !gameOver) {
@@ -157,6 +185,16 @@ function newGame() {
   render(); updateStatus();
   updateEvalDisplay(0, 0);
   searchContentEl.innerHTML = '等待走棋…';
+  // 后端对局记录：开局
+  currentGameId = _genGameId();
+  currentPly = 0;
+  pendingAiInfo = null;
+  postGameLog('/api/games/start', {
+    gameId: currentGameId,
+    playerRed: playerRed,
+    aiDepth: aiDepth,
+    initialBoard: board,
+  });
   if (!playerRed) setTimeout(aiSearch, 300);
 }
 
@@ -259,12 +297,14 @@ function doMove(fr, fc, tr, tc) {
   pvArrows = null;
   const piece = board[fr][fc];
   const redPiece = isRed(piece);
+  const moveChinese = moveToChinese(fr,fc,tr,tc,piece,board);
+  const captured = board[tr][tc] || null;
   const h = makeMove(board, fr, fc, tr, tc);
   lastMove = {fr,fc,tr,tc};
   history.push({h,piece,captured:h.captured});
   const li = document.createElement('li');
   li.className = redPiece?'red-move':'black-move';
-  li.textContent = moveToChinese(fr,fc,tr,tc,piece,board);
+  li.textContent = moveChinese;
   moveListEl.appendChild(li);
   moveListEl.scrollTop = moveListEl.scrollHeight;
 
@@ -277,16 +317,56 @@ function doMove(fr, fc, tr, tc) {
   const redCp = evaluate(board);
   updateEvalDisplay(playerRed ? redCp : -redCp, 0);
 
+  // 后端对局记录：走子
+  currentPly += 1;
+  const moverIsHuman = (redPiece === playerRed);
+  const ai = (!moverIsHuman && pendingAiInfo) ? pendingAiInfo : null;
+  pendingAiInfo = null;
+  if (currentGameId) {
+    postGameLog('/api/games/move', {
+      gameId: currentGameId,
+      ply: currentPly,
+      side: redPiece ? 'red' : 'black',
+      by: moverIsHuman ? 'human' : 'ai',
+      move: [fr, fc, tr, tc],
+      moveChinese: moveChinese,
+      piece: piece,
+      captured: captured,
+      score: ai ? ai.score : null,
+      depth: ai ? ai.depth : null,
+      nodes: ai ? ai.nodes : null,
+      timeMs: ai ? ai.timeMs : null,
+    });
+  }
+
+  function _endGame(result, reason, msg) {
+    gameOver = true;
+    statusEl.textContent = msg;
+    statusEl.className = 'status';
+    if (currentGameId) {
+      postGameLog('/api/games/end', {
+        gameId: currentGameId,
+        result: result,
+        reason: reason,
+        plies: currentPly,
+      });
+    }
+  }
+
   if (positionHistory.get(posKey) >= 10) {
-    gameOver=true; statusEl.textContent='⚖️ 十次重复局面，判和'; statusEl.className='status'; console.log('[game] 十次重复判和'); return;
+    _endGame('draw_rep', '十次重复', '⚖️ 十次重复局面，判和');
+    console.log('[game] 十次重复判和'); return;
   }
   const status = gameStatus(board, currentTurn);
   if (status === 'checkmate') {
-    gameOver=true; const w=currentTurn?'黑方':'红方';
-    statusEl.textContent='将死！'+w+'获胜 🎉'; statusEl.className='status'; return;
+    const winRed = !currentTurn; // currentTurn 是被将死方
+    _endGame(winRed ? 'red_win' : 'black_win', 'checkmate',
+      '将死！' + (winRed ? '红方' : '黑方') + '获胜 🎉');
+    return;
   }
   if (status === 'stalemate') {
-    gameOver=true; statusEl.textContent='困毙！和棋'; statusEl.className='status'; return;
+    _endGame('draw_stalemate', 'stalemate', '困毙！和棋');
+    return;
   }
   if (inCheck(board, currentTurn)) {
     updateStatus('将军！'); setTimeout(updateStatus, 1500);
