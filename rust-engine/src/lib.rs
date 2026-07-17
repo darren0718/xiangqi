@@ -6,6 +6,7 @@ mod zobrist;
 mod book;
 mod search;
 mod see;
+mod tactics;
 
 use wasm_bindgen::prelude::*;
 use board::*;

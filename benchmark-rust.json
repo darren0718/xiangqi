@@ -1,29 +1,29 @@
 {
-  "timestamp": "2026-07-17T09:37:09.064Z",
-  "version": "p2.4-stop",
+  "timestamp": "2026-07-17T09:44:43.471Z",
+  "version": "p1-tactics",
   "results": [
     {
       "name": "中炮对屏风马(4步)",
       "depth": 4,
-      "nodes": 4540692,
-      "timeMs": 4215,
-      "nps": 1077270,
-      "score": -10,
+      "nodes": 4490819,
+      "timeMs": 5019,
+      "nps": 894764,
+      "score": -1,
       "bestMove": [
         9,
-        0,
         8,
-        0
+        8,
+        8
       ],
       "actualDepth": 11
     },
     {
       "name": "中局复杂(12步)",
       "depth": 4,
-      "nodes": 914272,
-      "timeMs": 855,
-      "nps": 1069324,
-      "score": 252,
+      "nodes": 1654302,
+      "timeMs": 1988,
+      "nps": 832144,
+      "score": 284,
       "bestMove": [
         6,
         4,
@@ -35,52 +35,52 @@
     {
       "name": "顺炮横车对直车(6步)",
       "depth": 4,
-      "nodes": 4074058,
-      "timeMs": 3786,
-      "nps": 1076085,
-      "score": -16,
+      "nodes": 6230770,
+      "timeMs": 7477,
+      "nps": 833325,
+      "score": -35,
       "bestMove": [
         7,
-        1,
+        4,
         7,
-        2
+        8
       ],
-      "actualDepth": 12
+      "actualDepth": 11
     },
     {
       "name": "仙人指路对卒底炮(5步)",
       "depth": 4,
-      "nodes": 1802070,
-      "timeMs": 1567,
-      "nps": 1150013,
-      "score": 69,
+      "nodes": 5125724,
+      "timeMs": 5527,
+      "nps": 927397,
+      "score": 70,
       "bestMove": [
+        0,
+        1,
         2,
-        4,
-        5,
-        4
+        2
       ],
       "actualDepth": 12
     },
     {
       "name": "中炮屏风马(d5深度)",
       "depth": 5,
-      "nodes": 22153769,
-      "timeMs": 20313,
-      "nps": 1090620,
-      "score": 122,
+      "nodes": 17243941,
+      "timeMs": 19644,
+      "nps": 877822,
+      "score": 129,
       "bestMove": [
-        5,
-        4,
-        4,
-        4
+        9,
+        8,
+        8,
+        8
       ],
-      "actualDepth": 12
+      "actualDepth": 11
     }
   ],
   "totals": {
-    "nodes": 33484861,
-    "timeMs": 30736,
-    "nps": 1089435
+    "nodes": 34745556,
+    "timeMs": 39655,
+    "nps": 876196
   }
 }

@@ -278,6 +278,9 @@ pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
         score += undeveloped_penalty(board);
     }
 
+    // Step 7 (p1-tactics): 王安全 + 9 个战术模式（红-黑净分）
+    score += crate::tactics::tactics_score(board);
+
     // Step 3 (v5): Tempo 微幅奖励，避免过度被动 (相对 side-to-move)
     score += if red_to_move { 6 } else { -6 };
 
