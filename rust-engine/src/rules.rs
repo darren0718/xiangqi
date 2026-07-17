@@ -17,6 +17,42 @@ pub fn unmake_move(b: &mut Board, u: Undo) {
     b[idx(u.fr,u.fc)] = u.piece; b[idx(u.tr,u.tc)] = u.captured;
 }
 
+/// Zobrist-aware make/unmake：同时增量维护 hash（含 side 翻转）
+#[inline(always)]
+pub fn make_move_zh(
+    b: &mut Board, fr: i32, fc: i32, tr: i32, tc: i32,
+    hash: &mut u64, z: &crate::zobrist::Zobrist,
+) -> Undo {
+    let piece = b[idx(fr,fc)]; let captured = b[idx(tr,tc)];
+    // XOR out piece at from, XOR in piece at to, XOR out captured at to (if any)
+    let pi = crate::zobrist::piece_index(piece);
+    *hash ^= z.piece[pi][idx(fr,fc)];
+    *hash ^= z.piece[pi][idx(tr,tc)];
+    if captured != 0 {
+        let ci = crate::zobrist::piece_index(captured);
+        *hash ^= z.piece[ci][idx(tr,tc)];
+    }
+    // Side flip
+    *hash ^= z.side[0] ^ z.side[1];
+    b[idx(tr,tc)] = piece; b[idx(fr,fc)] = 0;
+    Undo { fr, fc, tr, tc, piece, captured }
+}
+#[inline(always)]
+pub fn unmake_move_zh(
+    b: &mut Board, u: Undo,
+    hash: &mut u64, z: &crate::zobrist::Zobrist,
+) {
+    b[idx(u.fr,u.fc)] = u.piece; b[idx(u.tr,u.tc)] = u.captured;
+    let pi = crate::zobrist::piece_index(u.piece);
+    *hash ^= z.piece[pi][idx(u.fr,u.fc)];
+    *hash ^= z.piece[pi][idx(u.tr,u.tc)];
+    if u.captured != 0 {
+        let ci = crate::zobrist::piece_index(u.captured);
+        *hash ^= z.piece[ci][idx(u.tr,u.tc)];
+    }
+    *hash ^= z.side[0] ^ z.side[1];
+}
+
 /// 伪走法：以扁平数组 [tr,tc,tr,tc,...] 写入 out。
 pub fn pseudo_moves(board: &Board, r: i32, c: i32, out: &mut Vec<i32>) {
     let p = board[idx(r,c)]; if p == 0 { return; }

@@ -2,6 +2,7 @@
 // 1:1 移植自 js/engine-worker.js
 use crate::board::*;
 use crate::rules::*;
+// zh 变体在 rules 里，通过 crate::rules::make_move_zh/unmake_move_zh 使用
 use crate::eval::{evaluate, game_phase};
 use crate::zobrist::*;
 use crate::see::see_capture;
@@ -25,6 +26,7 @@ pub struct SearchCtx {
     pub start_time_ms: f64,
     pub time_limit_ms: f64,
     pub rng_state: u64,
+    pub current_hash: u64,  // Step 4: 增量维护当前根+搜索路径的 hash
 }
 
 impl SearchCtx {
@@ -35,6 +37,7 @@ impl SearchCtx {
             history: HashMap::new(),
             nodes: 0, stop: false, start_time_ms: 0.0, time_limit_ms: 0.0,
             rng_state: 0xDEADBEEF_CAFEBABE,
+            current_hash: 0,
         }
     }
     pub fn clear_tt(&mut self) { for e in self.tt.iter_mut() { *e = TTEntry::default(); } }
@@ -120,9 +123,9 @@ fn quiesce(
         let mut best = stand_pat;
         if best < beta {
             for (fr,fc,tr,tc) in moves {
-                let u = make_move(board, fr, fc, tr, tc);
+                let u = crate::rules::make_move_zh(board, fr, fc, tr, tc, &mut ctx.current_hash, &ctx.z);
                 let val = -quiesce(ctx, board, -beta, -alpha, !red_to_move, depth-1, ply+1);
-                unmake_move(board, u);
+                crate::rules::unmake_move_zh(board, u, &mut ctx.current_hash, &ctx.z);
                 if val > best { best = val; }
                 if best > alpha { alpha = best; }
                 if alpha >= beta { break; }
@@ -148,9 +151,9 @@ fn quiesce(
         if stand_pat + vv + delta < alpha { continue; }
         // SEE 过滤：明显亏损的吃子直接跳过（不影响吃将，将不会出现在 legal captures 里）
         if see_capture(board, fr, fc, tr, tc) < 0 { continue; }
-        let u = make_move(board, fr, fc, tr, tc);
+        let u = crate::rules::make_move_zh(board, fr, fc, tr, tc, &mut ctx.current_hash, &ctx.z);
         let val = -quiesce(ctx, board, -beta, -alpha, !red_to_move, depth-1, ply+1);
-        unmake_move(board, u);
+        crate::rules::unmake_move_zh(board, u, &mut ctx.current_hash, &ctx.z);
         if val >= beta { return beta; }
         if val > alpha { alpha = val; }
     }
@@ -171,7 +174,7 @@ fn negamax(
     ctx.nodes += 1;
     // 重复局面惩罚（对齐 JS：ply>0 && ply<2）
     if ply > 0 && ply < 2 {
-        let ck = board_hash(&ctx.z, board, red_to_move);
+        let ck = ctx.current_hash;
         if *rep_count.get(&ck).unwrap_or(&0) >= 1 { return 0; }
     }
     if alpha < -MATE + ply { alpha = -MATE + ply; }
@@ -180,7 +183,9 @@ fn negamax(
 
     if depth <= 0 { return quiesce(ctx, board, alpha, beta, red_to_move, 0, ply); }
 
-    let hash = board_hash(&ctx.z, board, red_to_move);
+    let hash = ctx.current_hash;
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(hash, board_hash(&ctx.z, board, red_to_move), "incremental hash out of sync");
     let mut tt_best: Option<(i32,i32,i32,i32)> = None;
     if let Some(tte) = tt_get(ctx, hash) {
         if tte.has_mv { tt_best = Some(tte.mv); }
@@ -209,8 +214,10 @@ fn negamax(
     // Null-move
     if allow_null && !in_chk && depth >= 3 && game_phase(board) != 2 && !is_pv {
         let r = if depth >= 5 { 3 } else { 2 };
-        // 做空着（切换 side）：直接递归时切换 red_to_move
+        // 做空着：仅翻转 side，需要同步 XOR hash
+        ctx.current_hash ^= ctx.z.side[0] ^ ctx.z.side[1];
         let val = -negamax(ctx, board, depth - 1 - r, -beta, -beta+1, !red_to_move, ply+1, killers, counter_moves, ply_stack, false, false, rep_count);
+        ctx.current_hash ^= ctx.z.side[0] ^ ctx.z.side[1];
         if val >= beta { return beta; }
     }
 
@@ -256,7 +263,7 @@ fn negamax(
         let (fr, fc, tr, tc) = mv;
         let is_cap = board[idx(tr,tc)] != 0;
         if futile && !is_cap && !in_chk && moves_done > 0 { continue; }
-        let u = make_move(board, fr, fc, tr, tc);
+        let u = crate::rules::make_move_zh(board, fr, fc, tr, tc, &mut ctx.current_hash, &ctx.z);
         // 记录本 ply 走的着（供子层 counter 使用）
         if (ply as usize) < ply_stack.len() { ply_stack[ply as usize] = Some(mv); } else { ply_stack.push(Some(mv)); }
         let gc = in_check(board, !red_to_move);
@@ -281,7 +288,7 @@ fn negamax(
             }
             val = v;
         }
-        unmake_move(board, u);
+        crate::rules::unmake_move_zh(board, u, &mut ctx.current_hash, &ctx.z);
         if (ply as usize) < ply_stack.len() { ply_stack[ply as usize] = None; }
         if val > best_val {
             best_val = val; best_move = mv;
@@ -356,6 +363,7 @@ pub fn ai_move(
     let mut best_val = 0i32;
 
     ctx.start_time_ms = now_ms();
+    ctx.current_hash = board_hash(&ctx.z, &board, ai_is_red);
     let time_limit = time_limit_ms.unwrap_or_else(|| {
         if max_depth >= 5 { 8000.0 } else if max_depth >= 4 { 4000.0 } else if max_depth >= 3 { 1500.0 } else { 500.0 }
     });
@@ -408,7 +416,7 @@ pub fn ai_move(
             val = negamax(ctx, &mut board, depth, alpha, beta, ai_is_red, 0, &mut killers, &mut counter_moves, &mut ply_stack, true, true, &rep_count);
         }
         best_val = val;
-        let root_hash = board_hash(&ctx.z, &board, ai_is_red);
+        let root_hash = ctx.current_hash;
         if let Some(tte) = tt_get(ctx, root_hash) {
             if tte.has_mv && is_valid_move(&mut board, ai_is_red, tte.mv) { best_move = Some(tte.mv); }
         }
