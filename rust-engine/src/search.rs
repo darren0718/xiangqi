@@ -4,6 +4,7 @@ use crate::board::*;
 use crate::rules::*;
 use crate::eval::{evaluate, game_phase};
 use crate::zobrist::*;
+use crate::see::see_capture;
 use std::collections::HashMap;
 
 pub const MATE: i32 = 60000;
@@ -86,7 +87,13 @@ fn score_moves(
         else {
             let victim = board[idx(tr,tc)]; let attacker = board[idx(fr,fc)];
             if victim != 0 {
-                s = 500_000 + pval(piece_type_lower(victim)) * 16 - pval(piece_type_lower(attacker));
+                // SEE 检查：负 SEE 吃子降级到 quiet 之后但仍在 history 之上
+                let see_v = see_capture(board, fr, fc, tr, tc);
+                if see_v >= 0 {
+                    s = 500_000 + pval(piece_type_lower(victim)) * 16 - pval(piece_type_lower(attacker));
+                } else {
+                    s = 20_000 + see_v;  // 负 SEE：排到 quiet 之后（history 上限约 depth^2*63=63*49<10K）
+                }
             } else {
                 if Some(mv) == k1 { s = 50_000; }
                 else if Some(mv) == k2 { s = 40_000; }
@@ -139,6 +146,8 @@ fn quiesce(
     for (fr,fc,tr,tc) in cap_moves {
         let vv = pval(piece_type_lower(board[idx(tr,tc)]));
         if stand_pat + vv + delta < alpha { continue; }
+        // SEE 过滤：明显亏损的吃子直接跳过（不影响吃将，将不会出现在 legal captures 里）
+        if see_capture(board, fr, fc, tr, tc) < 0 { continue; }
         let u = make_move(board, fr, fc, tr, tc);
         let val = -quiesce(ctx, board, -beta, -alpha, !red_to_move, depth-1, ply+1);
         unmake_move(board, u);

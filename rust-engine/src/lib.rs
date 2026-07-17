@@ -5,6 +5,7 @@ mod eval;
 mod zobrist;
 mod book;
 mod search;
+mod see;
 
 use wasm_bindgen::prelude::*;
 use board::*;
