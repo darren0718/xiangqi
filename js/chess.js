@@ -102,8 +102,10 @@ function unmakeMove(board,h){board[h.fr][h.fc]=h.piece;board[h.tr][h.tc]=h.captu
 
 function computePinnedBB(board,red,kp){
   let pinned=0n;if(!kp)return pinned;const[kr,kc]=kp;
-  const eRook=red?'r':'R',eKing=red?'k':'K';
+  const eRook=red?'r':'R',eCannon=red?'c':'C',eKing=red?'k':'K';
   for(const[dr,dc]of ROOK_DIRS){let nr=kr+dr,nc=kc+dc,blocker=null,blockers=0;while(inBoard(nr,nc)){const p=board[nr][nc];if(p!==0){if(isOwn(p,red)){blockers++;if(blockers===1)blocker=[nr,nc];else break;}else{if(p===eRook&&blockers===1)pinned|=(1n<<BigInt(blocker[0]*9+blocker[1]));break;}}nr+=dr;nc+=dc;}}
+  // A4 炮牵制：king — own_piece — 任意子 — enemy_cannon → own_piece 被牵制
+  for(const[dr,dc]of ROOK_DIRS){let nr=kr+dr,nc=kc+dc,firstOwn=null,passedScreen=false;while(inBoard(nr,nc)){const p=board[nr][nc];if(p!==0){if(!firstOwn){if(!isOwn(p,red))break;firstOwn=[nr,nc];}else if(!passedScreen){passedScreen=true;}else{if(p===eCannon)pinned|=(1n<<BigInt(firstOwn[0]*9+firstOwn[1]));break;}}nr+=dr;nc+=dc;}}
   const fdir=red?-1:1;let fnr=kr+fdir,between=null,found=false;
   while(inBoard(fnr,kc)){const p=board[fnr][kc];if(p!==0){if(p===eKing){found=true;break;}if(between){between=null;break;}between=[fnr,kc];}fnr+=fdir;}
   if(found&&between)pinned|=(1n<<BigInt(between[0]*9+between[1]));

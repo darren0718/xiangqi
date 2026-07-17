@@ -200,6 +200,7 @@ pub fn compute_pinned(board: &Board, red: bool, kp: (i32,i32)) -> u128 {
     let mut pinned: u128 = 0;
     let (kr, kc) = kp;
     let e_rook = if red { b'r' } else { b'R' };
+    let e_cannon = if red { b'c' } else { b'C' };
     let e_king = if red { b'k' } else { b'K' };
     // 车牵制
     for &(dr,dc) in ROOK_DIRS.iter() {
@@ -214,6 +215,34 @@ pub fn compute_pinned(board: &Board, red: bool, kp: (i32,i32)) -> u128 {
                 } else {
                     if p == e_rook && blockers == 1 {
                         let (br, bcc) = blocker.unwrap();
+                        pinned |= 1u128 << (br*9 + bcc);
+                    }
+                    break;
+                }
+            }
+            nr+=dr; nc+=dc;
+        }
+    }
+    // A4 炮牵制：king — own_piece — 任意子 — enemy_cannon
+    // own_piece 移开会让炮以 "任意子" 为炮架直接攻击王 → pinned
+    for &(dr,dc) in ROOK_DIRS.iter() {
+        let mut nr=kr+dr; let mut nc=kc+dc;
+        let mut first_own: Option<(i32,i32)> = None;
+        let mut passed_screen = false;
+        while in_board(nr,nc) {
+            let p = board[idx(nr,nc)];
+            if p != 0 {
+                if first_own.is_none() {
+                    // 第一个子：必须是本方，否则不构成"king — own — X — cannon"
+                    if !is_own(p, red) { break; }
+                    first_own = Some((nr,nc));
+                } else if !passed_screen {
+                    // 第二个子：任意子（作为炮架），继续找第三个
+                    passed_screen = true;
+                } else {
+                    // 第三个子：如果是敌方炮 → 第一个 own 被牵制
+                    if p == e_cannon {
+                        let (br, bcc) = first_own.unwrap();
                         pinned |= 1u128 << (br*9 + bcc);
                     }
                     break;
@@ -291,4 +320,49 @@ pub fn game_status(board: &mut Board, red_to_move: bool) -> Status {
     if all_legal_moves(board, red_to_move).is_empty() {
         if in_check(board, red_to_move) { Status::Checkmate } else { Status::Stalemate }
     } else { Status::Normal }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn empty() -> Board { [0u8; NSQ] }
+
+    #[test]
+    fn cannon_pin_detected() {
+        // 红将 (9,4) — 红马 (5,4)（被牵制）— 红兵 (3,4)（炮架）— 黑炮 (1,4)
+        let mut b = empty();
+        b[idx(9,4)] = b'K';
+        b[idx(0,4)] = b'k';
+        b[idx(5,4)] = b'H';
+        b[idx(3,4)] = b'P';
+        b[idx(1,4)] = b'c';
+        let pinned = compute_pinned(&b, true, (9,4));
+        let bit = 1u128 << (5*9 + 4);
+        assert!(pinned & bit != 0, "expected H at (5,4) to be pinned by cannon");
+    }
+
+    #[test]
+    fn cannon_pin_with_own_screen() {
+        // king — own1 — own2 — cannon：own1 移开后炮以 own2 为架 → own1 亦被牵制
+        let mut b = empty();
+        b[idx(9,4)] = b'K';
+        b[idx(0,4)] = b'k';
+        b[idx(5,4)] = b'H';
+        b[idx(3,4)] = b'H';
+        b[idx(1,4)] = b'c';
+        let pinned = compute_pinned(&b, true, (9,4));
+        assert!(pinned & (1u128 << (5*9+4)) != 0, "own1 should be pinned");
+    }
+
+    #[test]
+    fn cannon_no_pin_without_screen() {
+        // king — own — cannon（中间无炮架）→ 炮不能吃将，own 不牵制
+        let mut b = empty();
+        b[idx(9,4)] = b'K';
+        b[idx(0,4)] = b'k';
+        b[idx(5,4)] = b'H';
+        b[idx(1,4)] = b'c';
+        let pinned = compute_pinned(&b, true, (9,4));
+        assert!(pinned & (1u128 << (5*9+4)) == 0, "no screen → no pin");
+    }
 }

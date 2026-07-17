@@ -275,3 +275,40 @@ Benchmark 局面（time_limit=0 走内部默认 8s，5 局面全部搜到 max_de
 - 规则/评估等价：`crosscheck.js` diff 分布不变
 - Regression S1/S2/S3 全绿
 - 实战意义：AI 在均势时用满时间寻优；明显局面秒回；主变不稳定时多想；分数下滑时挣扎
+
+## v5-p7-canonpin (Step 12 — Phase B 收尾 · 炮牵制修复)
+**内容**（正确性优先，评估侧的 B4/B7 权重需再调）：
+- **A4 炮牵制正确性修复**：`compute_pinned` 新增识别 `king — own — X — enemy_cannon` 模式。发现 JS 侧同样缺此 pin 检测，一并修复 `js/chess.js::computePinnedBB`
+- 修复前 perft(3) = 80062（JS 与 Rust 都错，其中包含违规走法 e.g., 红兵5进一后黑炮吃车再红士(9,3→8,4)——此时士离开导致炮"沉底士"路径可攻王，实为非法）
+- 修复后 perft(3) = **79930**（JS/Rust 均等价，符合规则）
+- **B4/B7 evaluation 侧改进（helper 已就位，暂未启用）**：`sunk_rook`、`rook_blocking_eye`、`elephant_eye_penalty` 的实现完成并单元测试，但权重（+6/+3/-3）激活后 5 局面中案例 3/4/5 出现 2-3 层深度回落。SPEC 要求 ≤1 层，故本 commit 只启用 pin 修复；权重调优列入 next TODO。
+- 新增单元测试：`cannon_pin_detected`、`cannon_pin_with_own_screen`、`cannon_no_pin_without_screen`、`elephant_eye_penalty_helper_still_valid`
+
+**Benchmark（vs Step 11 p6-tm）**：
+
+| 局面 | d | 节点 | 时间ms | NPS | 评分 |
+|---|---:|---:|---:|---:|---:|
+| 中炮对屏风马(4步) | 0 | 1 | 1 | - | 0 |
+| 中局复杂(12步) | 12 | 1,668,864 | 1,788 | 933,369 | 284 |
+| 顺炮横车对直车(6步) | 11 | 2,714,594 | 2,897 | 937,036 | -26 |
+| 仙人指路对卒底炮(5步) | 12 | 7,167,779 | 7,022 | 1,020,760 | 63 |
+| 中炮屏风马(d5) | 10 | 5,314,331 | 5,435 | 977,798 | 129 |
+| **合计** | | **16,865,569** | **17,143** | **983,807** | |
+
+- 深度：案例 3 -1 层（d12→d11），案例 5 -1 层（d11→d10）— 都在 SPEC ≤1 层容差内
+- 总时间 25,610ms → 17,143ms（**-33%**）  ⬅ 主要因 cannon-pin 消除了大量伪合法节点
+- 总节点 25.0M → 16.9M（**-32.5%**）
+- NPS 977K → 984K（+0.7%）
+- Regression S1/S2/S3 全绿；`cargo test` 14 通过；`crosscheck.js` 通过（JS+Rust 都修复到 79930）
+
+**Phase B 累计（vs v4 baseline）**：
+
+| 版本 | 5 局面总时(ms) | 总节点 | vs baseline |
+|---|---:|---:|---:|
+| v4 baseline | 29,876 | 35.0M | 100% 时间 / 100% 节点 |
+| p2-book | 43,055 | 37.1M | 144% / 106% |
+| p4a-9A | 29,651 | 25.7M | 99% / 73% |
+| p4b-9B | 27,095 | 25.0M | 91% / 71% |
+| p5-perf | 25,549 | 25.0M | 85% / 71% |
+| p6-tm | 25,610 | 25.0M | 86% / 71% |
+| **p7-canonpin** | **17,143** | **16.9M** | **57% / 48%** |

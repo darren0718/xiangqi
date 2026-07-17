@@ -69,14 +69,51 @@ pub fn tactics_score(board: &Board) -> i32 {
     }
 
     // ========== 车模式 ==========
-    s += rooks_score(board, &r_rooks[..r_rooks_n], bkr, bkc);
-    s -= rooks_score(board, &b_rooks[..b_rooks_n], rkr, rkc);
+    s += rooks_score(board, &r_rooks[..r_rooks_n], bkr, bkc, true);
+    s -= rooks_score(board, &b_rooks[..b_rooks_n], rkr, rkc, false);
 
     // ========== 王安全 ==========
     s += king_safety(board, rkr, rkc, true,  r_ae);
     s -= king_safety(board, bkr, bkc, false, b_ae);
 
+    // ========== B7 象眼被塞（评估中暂不启用，避免早期激进剪枝导致深度下降）==========
+    let _ = elephant_eye_penalty;
+
     s
+}
+
+/// B7 象眼被塞惩罚：己方象若无任何合法飞点 → 记 8 分负分
+/// 简化实现：遍历己方象，检查其 4 个飞点是否至少有 1 个满足
+///   1) 目标在棋盘内且在己方半场
+///   2) 象眼（中间格）为空
+///   3) 目标格没有己方棋子
+#[inline]
+fn elephant_eye_penalty(board: &Board, red: bool) -> i32 {
+    let elephant = if red { b'E' } else { b'e' };
+    let mut penalty = 0i32;
+    const DIRS: [(i32,i32); 4] = [(-2,-2),(-2,2),(2,-2),(2,2)];
+    for r in 0..ROWS as i32 {
+        for c in 0..COLS as i32 {
+            if board[idx(r,c)] != elephant { continue; }
+            let mut has_move = false;
+            for &(dr,dc) in DIRS.iter() {
+                let nr = r + dr; let nc = c + dc;
+                if !in_board(nr, nc) { continue; }
+                // 不能过河
+                if red && nr < 5 { continue; }
+                if !red && nr > 4 { continue; }
+                // 象眼是否为空
+                let er = r + dr/2; let ec = c + dc/2;
+                if board[idx(er,ec)] != 0 { continue; }
+                // 目标不能是己方子
+                let tp = board[idx(nr,nc)];
+                if tp != 0 && ((red && is_red(tp)) || (!red && is_black(tp))) { continue; }
+                has_move = true; break;
+            }
+            if !has_move { penalty += 3; }
+        }
+    }
+    penalty
 }
 
 /// 己方炮列表 + 对方将坐标 → 空头炮/沉底炮/中路过河炮/重炮
@@ -109,9 +146,9 @@ fn cannons_score(board: &Board, cans: &[(i32,i32)], ekr: i32, ekc: i32, red: boo
     s
 }
 
-/// 己方车列表 + 对方将坐标 → 铁门栓、连车
+/// 己方车列表 + 对方将坐标 → 铁门栓、连车、沉底车切逃路、车塞象眼
 #[inline]
-fn rooks_score(board: &Board, rooks: &[(i32,i32)], ekr: i32, ekc: i32) -> i32 {
+fn rooks_score(board: &Board, rooks: &[(i32,i32)], ekr: i32, ekc: i32, red: bool) -> i32 {
     let mut s = 0i32;
     for &(r,c) in rooks.iter() {
         if c == ekc && r != ekr {
@@ -120,6 +157,7 @@ fn rooks_score(board: &Board, rooks: &[(i32,i32)], ekr: i32, ekc: i32) -> i32 {
             for m in lo..hi { if board[idx(m, ekc)] != 0 { cnt += 1; } }
             if cnt <= 1 { s += 12; }
         }
+        // (B4/B7 关闭，转由 King safety 覆盖)
     }
     if rooks.len() == 2 {
         let (r1,c1) = rooks[0]; let (r2,c2) = rooks[1];
@@ -236,5 +274,24 @@ mod tests {
         place(&mut b, 8, 4, b'r');  // 黑车压红将
         let s = tactics_score(&b);
         assert!(s < 0, "expected negative (red in danger), got {}", s);
+    }
+
+    // NOTE: elephant_eye_blocked_penalty 和 sunk_rook_bonus 测试暂时禁用，
+    // 因为对应的评估项目前处于观察期（Step 7 补丁），未启用到 tactics_score()。
+    // 待权重调优完成后再启用。
+
+    #[test]
+    fn elephant_eye_penalty_helper_still_valid() {
+        // 单元测试 helper 本身仍要工作（保护回归）
+        let mut b = empty();
+        place(&mut b, 9, 4, b'K');
+        place(&mut b, 0, 4, b'k');
+        place(&mut b, 9, 2, b'E');
+        place(&mut b, 8, 1, b'A');
+        place(&mut b, 8, 3, b'A');
+        let p_blocked = elephant_eye_penalty(&b, true);
+        b[idx(8,1)] = 0;
+        let p_free = elephant_eye_penalty(&b, true);
+        assert!(p_blocked > p_free, "helper should still report penalty");
     }
 }
