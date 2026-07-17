@@ -9,32 +9,30 @@ const PIECE_R = 26;      // 棋子半径
 function colX(c) { return MARGIN + c * CELL; }
 function rowY(r) { return MARGIN + r * CELL; }
 function posFromXY(x, y, flipped) {
-  let fx = x, fy = y;
+  let c, r;
   if (flipped) {
-    const boardW = MARGIN * 2 + CELL * (COLS - 1);
-    const boardH = MARGIN * 2 + CELL * (ROWS - 1);
-    fx = boardW - x;
-    fy = boardH - y;
+    c = COLS - 1 - Math.round((x - MARGIN) / CELL);
+    r = ROWS - 1 - Math.round((y - MARGIN) / CELL);
+  } else {
+    c = Math.round((x - MARGIN) / CELL);
+    r = Math.round((y - MARGIN) / CELL);
   }
-  const c = Math.round((fx - MARGIN) / CELL);
-  const r = Math.round((fy - MARGIN) / CELL);
   if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return null;
-  const cx = colX(c), cy = rowY(r);
-  const dx = fx - cx, dy = fy - cy;
+  const drawC = flipped ? (COLS - 1 - c) : c;
+  const drawR = flipped ? (ROWS - 1 - r) : r;
+  const cx = colX(drawC), cy = rowY(drawR);
+  const dx = x - cx, dy = y - cy;
   if (dx*dx + dy*dy > PIECE_R*PIECE_R) return null;
-  return flipped ? [ROWS-1-r, COLS-1-c] : [r, c];
+  return [r, c];
 }
 
 function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMoves) {
   ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  ctx.save();
-  if (flipped) {
-    ctx.translate(ctx.canvas.width, ctx.canvas.height);
-    ctx.rotate(Math.PI);
-  }
-  // 背景
   ctx.fillStyle = '#f0c78a';
   ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+  function fx(c) { return flipped ? colX(COLS - 1 - c) : colX(c); }
+  function fy(r) { return flipped ? rowY(ROWS - 1 - r) : rowY(r); }
 
   ctx.strokeStyle = '#3a2010';
   ctx.lineWidth = 1.5;
@@ -42,35 +40,42 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
   // 横线
   for (let r = 0; r < ROWS; r++) {
     ctx.beginPath();
-    ctx.moveTo(colX(0), rowY(r));
-    ctx.lineTo(colX(COLS-1), rowY(r));
+    ctx.moveTo(fx(0), fy(r));
+    ctx.lineTo(fx(COLS-1), fy(r));
     ctx.stroke();
   }
-  // 竖线（注意楚河汉界在第4、5行之间，中间竖线断开）
+  // 竖线
   for (let c = 0; c < COLS; c++) {
     if (c === 0 || c === COLS-1) {
       ctx.beginPath();
-      ctx.moveTo(colX(c), rowY(0));
-      ctx.lineTo(colX(c), rowY(ROWS-1));
+      ctx.moveTo(fx(c), fy(0));
+      ctx.lineTo(fx(c), fy(ROWS-1));
       ctx.stroke();
     } else {
       ctx.beginPath();
-      ctx.moveTo(colX(c), rowY(0));
-      ctx.lineTo(colX(c), rowY(4));
+      ctx.moveTo(fx(c), fy(0));
+      ctx.lineTo(fx(c), fy(4));
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(colX(c), rowY(5));
-      ctx.lineTo(colX(c), rowY(ROWS-1));
+      ctx.moveTo(fx(c), fy(5));
+      ctx.lineTo(fx(c), fy(ROWS-1));
       ctx.stroke();
     }
   }
 
   // 九宫斜线
   ctx.beginPath();
-  ctx.moveTo(colX(3), rowY(0)); ctx.lineTo(colX(5), rowY(2));
-  ctx.moveTo(colX(5), rowY(0)); ctx.lineTo(colX(3), rowY(2));
-  ctx.moveTo(colX(3), rowY(7)); ctx.lineTo(colX(5), rowY(9));
-  ctx.moveTo(colX(5), rowY(7)); ctx.lineTo(colX(3), rowY(9));
+  if (flipped) {
+    ctx.moveTo(fx(3), fy(7)); ctx.lineTo(fx(5), fy(9));
+    ctx.moveTo(fx(5), fy(7)); ctx.lineTo(fx(3), fy(9));
+    ctx.moveTo(fx(3), fy(0)); ctx.lineTo(fx(5), fy(2));
+    ctx.moveTo(fx(5), fy(0)); ctx.lineTo(fx(3), fy(2));
+  } else {
+    ctx.moveTo(colX(3), rowY(0)); ctx.lineTo(colX(5), rowY(2));
+    ctx.moveTo(colX(5), rowY(0)); ctx.lineTo(colX(3), rowY(2));
+    ctx.moveTo(colX(3), rowY(7)); ctx.lineTo(colX(5), rowY(9));
+    ctx.moveTo(colX(5), rowY(7)); ctx.lineTo(colX(3), rowY(9));
+  }
   ctx.stroke();
 
   // 楚河汉界
@@ -78,38 +83,42 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
   ctx.font = 'bold 28px "KaiTi","STKaiti","SimSun",serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('楚 河', colX(1.5), rowY(4.5));
-  ctx.fillText('汉 界', colX(6.5), rowY(4.5));
+  if (flipped) {
+    ctx.fillText('楚 河', fx(6.5), fy(4.5));
+    ctx.fillText('汉 界', fx(1.5), fy(4.5));
+  } else {
+    ctx.fillText('楚 河', colX(1.5), rowY(4.5));
+    ctx.fillText('汉 界', colX(6.5), rowY(4.5));
+  }
 
   // 上一步标记
   if (lastMove) {
     ctx.strokeStyle = 'rgba(0,150,0,0.5)';
     ctx.lineWidth = 3;
-    ctx.strokeRect(colX(lastMove.fc)-PIECE_R-2, rowY(lastMove.fr)-PIECE_R-2, PIECE_R*2+4, PIECE_R*2+4);
-    ctx.strokeRect(colX(lastMove.tc)-PIECE_R-2, rowY(lastMove.tr)-PIECE_R-2, PIECE_R*2+4, PIECE_R*2+4);
+    ctx.strokeRect(fx(lastMove.fc)-PIECE_R-2, fy(lastMove.fr)-PIECE_R-2, PIECE_R*2+4, PIECE_R*2+4);
+    ctx.strokeRect(fx(lastMove.tc)-PIECE_R-2, fy(lastMove.tr)-PIECE_R-2, PIECE_R*2+4, PIECE_R*2+4);
   }
 
-  // PV 箭头：三层叠加（光环 → 主体 → 内核），带渐变效果
+  // PV 箭头
   if (pvMoves && pvMoves.length > 0) {
     const arrowRGB = [
-      [0, 180, 70],   // AI 着法：翠绿
-      [220, 80, 0],    // 对手应对：橙红
+      [0, 180, 70],
+      [220, 80, 0],
     ];
     const maxArrows = Math.min(pvMoves.length, 2);
     for (let i = 0; i < maxArrows; i++) {
       const [RGBr, RGBg, RGBb] = arrowRGB[i % 2];
       const [fr, fc, tr, tc] = pvMoves[i];
-      const x1 = colX(fc), y1 = rowY(fr);
-      const x2 = colX(tc), y2 = rowY(tr);
+      const x1 = fx(fc), y1 = fy(fr);
+      const x2 = fx(tc), y2 = fy(tr);
       const dx = x2 - x1, dy = y2 - y1;
       const len = Math.sqrt(dx * dx + dy * dy);
       if (len < 1) continue;
-      const offset = 10; // 箭头靠近棋子圆心，不再半路停
+      const offset = 10;
       const ux = dx / len, uy = dy / len;
       const sx = x1 + ux * offset, sy = y1 + uy * offset;
       const ex = x2 - ux * offset, ey = y2 - uy * offset;
 
-      // --- 起点圆点（渐变 + 发光） ---
       ctx.beginPath();
       ctx.arc(x1, y1, 9, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${RGBr},${RGBg},${RGBb},0.18)`;
@@ -123,19 +132,16 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
       ctx.fillStyle = `rgba(${RGBr},${RGBg},${RGBb},0.85)`;
       ctx.fill();
 
-      // --- 尾部圆点（终点小光晕） ---
       ctx.beginPath();
       ctx.arc(x2, y2, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(${RGBr},${RGBg},${RGBb},0.3)`;
       ctx.fill();
 
-      // --- 箭头主体：线形渐变（起点淡 → 终点深） ---
       const grad = ctx.createLinearGradient(sx, sy, ex, ey);
       grad.addColorStop(0, `rgba(${RGBr},${RGBg},${RGBb},0.35)`);
       grad.addColorStop(0.5, `rgba(${RGBr},${RGBg},${RGBb},0.55)`);
       grad.addColorStop(1, `rgba(${RGBr},${RGBg},${RGBb},0.75)`);
 
-      // 第一层：宽光晕（14px，非常淡）
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.lineTo(ex, ey);
@@ -144,7 +150,6 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
       ctx.lineCap = 'round';
       ctx.stroke();
 
-      // 第二层：主线条（8px，渐变）
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.lineTo(ex, ey);
@@ -153,7 +158,6 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
       ctx.lineCap = 'round';
       ctx.stroke();
 
-      // 第三层：内核 (3.5px，深色)
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.lineTo(ex, ey);
@@ -162,7 +166,6 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
       ctx.lineCap = 'round';
       ctx.stroke();
 
-      // --- 箭头尖（大号实心三角，三层） ---
       const headLen = 22;
       const ang = Math.atan2(dy, dx);
       const a1 = ang + Math.PI * 0.75;
@@ -172,7 +175,6 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
       const hx2 = ex + headLen * Math.cos(a2);
       const hy2 = ey + headLen * Math.sin(a2);
 
-      // 大三角（光环）
       ctx.beginPath();
       ctx.moveTo(ex, ey);
       ctx.lineTo(hx1, hy1);
@@ -181,7 +183,6 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
       ctx.fillStyle = `rgba(${RGBr},${RGBg},${RGBb},0.2)`;
       ctx.fill();
 
-      // 中三角（主体）
       ctx.beginPath();
       ctx.moveTo(ex, ey);
       ctx.lineTo(ex + 16 * Math.cos(a1), ey + 16 * Math.sin(a1));
@@ -190,7 +191,6 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
       ctx.fillStyle = `rgba(${RGBr},${RGBg},${RGBb},0.6)`;
       ctx.fill();
 
-      // 小三角（内核）
       ctx.beginPath();
       ctx.moveTo(ex, ey);
       ctx.lineTo(ex + 10 * Math.cos(a1), ey + 10 * Math.sin(a1));
@@ -206,7 +206,7 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
     ctx.fillStyle = 'rgba(0,180,0,0.35)';
     for (const [tr,tc] of legalTargets) {
       ctx.beginPath();
-      ctx.arc(colX(tc), rowY(tr), 8, 0, Math.PI*2);
+      ctx.arc(fx(tc), fy(tr), 8, 0, Math.PI*2);
       ctx.fill();
     }
   }
@@ -215,9 +215,8 @@ function drawBoard(ctx, board, selected, legalTargets, lastMove, flipped, pvMove
   for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++) {
     const p = board[r][c];
     if (!p) continue;
-    drawPiece(ctx, colX(c), rowY(r), p, selected && selected[0]===r && selected[1]===c);
+    drawPiece(ctx, fx(c), fy(r), p, selected && selected[0]===r && selected[1]===c);
   }
-  ctx.restore();
 }
 
 function drawPiece(ctx, x, y, p, selected) {
