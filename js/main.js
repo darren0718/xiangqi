@@ -277,8 +277,8 @@ function doMove(fr, fc, tr, tc) {
   const redCp = evaluate(board);
   updateEvalDisplay(playerRed ? redCp : -redCp, 0);
 
-  if (positionHistory.get(posKey) >= 3) {
-    gameOver=true; statusEl.textContent='⚖️ 三次重复局面，判和'; statusEl.className='status'; console.log('[game] 三次重复判和'); return;
+  if (positionHistory.get(posKey) >= 10) {
+    gameOver=true; statusEl.textContent='⚖️ 十次重复局面，判和'; statusEl.className='status'; console.log('[game] 十次重复判和'); return;
   }
   const status = gameStatus(board, currentTurn);
   if (status === 'checkmate') {
