@@ -31,6 +31,7 @@ pub struct SearchCtx {
     pub path_gives_check: Vec<bool>,  // Step 5: 每 ply 是否将军对方（用于长将判负）
     pub deadline_ms: f64,  // Step 6: 绝对时间戳截止；超过则设置 stop
     pub tt_age: u8,  // Step 9A: TT aging；每次 ai_move 递增，旧 age 条目优先淘汰
+    pub eval_stack: Vec<i32>,  // Step 9B: 每 ply 的静态评估（negamax 视角），用于 improving 启发
 }
 
 impl SearchCtx {
@@ -46,6 +47,7 @@ impl SearchCtx {
             path_gives_check: Vec::with_capacity(128),
             deadline_ms: 0.0,
             tt_age: 0,
+            eval_stack: vec![0; 256],
         }
     }
     pub fn clear_tt(&mut self) { for e in self.tt.iter_mut() { *e = TTEntry::default(); } }
@@ -260,10 +262,26 @@ fn negamax(
     let in_chk = in_check(board, red_to_move);
     if in_chk { depth += 1; }
 
-    // Razoring
-    if !is_pv && !in_chk && depth <= 3 {
-        let sv = if red_to_move { evaluate(board, red_to_move) } else { -evaluate(board, red_to_move) };
-        if sv + 200 * depth < alpha {
+    // Step 9B: 只在浅层（razoring/futility 可能触发的深度）计算静态评估并维护 eval_stack。
+    // 深层节点不做静态评估，避免额外开销。
+    let mut static_eval: i32 = 0;
+    let mut static_eval_valid = false;
+    if !in_chk && depth <= 4 {
+        let sv = evaluate(board, red_to_move);
+        static_eval = if red_to_move { sv } else { -sv };
+        static_eval_valid = true;
+        let pi = ply as usize;
+        if pi < ctx.eval_stack.len() { ctx.eval_stack[pi] = static_eval; }
+    }
+    // Step 9B: Improving = 当前静态评估 > 2 ply 前的静态评估（仅在 static_eval_valid 时可用）
+    let improving = static_eval_valid && ply >= 2 && {
+        let pi2 = (ply - 2) as usize;
+        pi2 < ctx.eval_stack.len() && static_eval > ctx.eval_stack[pi2]
+    };
+
+    // Razoring（不动 margin）
+    if !is_pv && !in_chk && depth <= 3 && static_eval_valid {
+        if static_eval + 200 * depth < alpha {
             let qv = quiesce(ctx, board, alpha, beta, red_to_move, 0, ply);
             if qv < alpha { return qv; }
         }
@@ -292,12 +310,11 @@ fn negamax(
         if val >= beta { return beta; }
     }
 
-    // Futility flag
+    // Futility flag（Step 9B：复用 static_eval，improving 时提高 margin）
     let mut futile = false;
-    if !is_pv && !in_chk && depth <= 4 {
-        let sv = if red_to_move { evaluate(board, red_to_move) } else { -evaluate(board, red_to_move) };
-        let fm = 150 + 100 * depth;
-        if sv + fm < alpha { futile = true; }
+    if !is_pv && !in_chk && depth <= 4 && static_eval_valid {
+        let fm = 150 + 100 * depth + if improving { 60 } else { 0 };
+        if static_eval + fm < alpha { futile = true; }
     }
 
     // IID
@@ -334,6 +351,9 @@ fn negamax(
         let (fr, fc, tr, tc) = mv;
         let is_cap = board[idx(tr,tc)] != 0;
         if futile && !is_cap && !in_chk && moves_done > 0 { continue; }
+        // Step 9B: Late Move Pruning 暂时禁用（象棋分支因子小、regression S2 敏感），
+        // 保留占位以便后续再评估阈值
+        // if !is_pv && !in_chk && !is_cap && depth <= 2 && moves_done > 0 { ... }
         let u = crate::rules::make_move_zh(board, fr, fc, tr, tc, &mut ctx.current_hash, &ctx.z);
         // 记录本 ply 走的着（供子层 counter 使用）
         if (ply as usize) < ply_stack.len() { ply_stack[ply as usize] = Some(mv); } else { ply_stack.push(Some(mv)); }
