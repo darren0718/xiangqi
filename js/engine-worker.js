@@ -66,6 +66,7 @@ self.onmessage = async function(e) {
   if (msg.type !== 'search') return;
 
   searching = true;
+  const searchToken = msg.token;
   wasmApi.h_reset();
   const flat = boardToFlat(msg.board);
   const mh = msg.moveHistory || [];
@@ -76,6 +77,7 @@ self.onmessage = async function(e) {
   const onProgress = (p) => {
     postMessage({
       type: 'progress',
+      token: searchToken,
       depth: p.depth,
       nodes: p.nodes,
       timeMs: p.timeMs,
@@ -85,17 +87,42 @@ self.onmessage = async function(e) {
     });
   };
 
-  const r = wasmApi.ai_move_wasm(flat, !!msg.redToMove, msg.depth|0, mhFlat, timeLimit, onProgress);
+  let r;
+  try {
+    r = wasmApi.ai_move_wasm(flat, !!msg.redToMove, msg.depth|0, mhFlat, timeLimit, onProgress);
+  } catch (err) {
+    console.error('[worker] ai_move_wasm threw:', err);
+    searching = false;
+    postMessage({ type: 'result', token: searchToken, bestMove: null, score: 0, depth: 0, nodes: 0, timeMs: 0, pv: [], error: String(err) });
+    return;
+  }
   searching = false;
 
-  const bestMove = r.found ? [r.best_from_r, r.best_from_c, r.best_to_r, r.best_to_c] : null;
+  const bestMove = r && r.found ? [r.best_from_r, r.best_from_c, r.best_to_r, r.best_to_c] : null;
   postMessage({
     type: 'result',
+    token: searchToken,
     bestMove,
-    score: r.score,
-    depth: r.depth,
-    nodes: r.nodes,
-    timeMs: r.time_ms,
-    pv: pvFlatToArr(r.pv),
+    score: r ? r.score : 0,
+    depth: r ? r.depth : 0,
+    nodes: r ? r.nodes : 0,
+    timeMs: r ? r.time_ms : 0,
+    pv: r ? pvFlatToArr(r.pv) : [],
   });
 };
+
+// Worker 顶层错误捕获：任何 uncaught panic/exception 都要通知主线程解锁 UI
+self.addEventListener('error', (ev) => {
+  console.error('[worker] uncaught error:', ev.message || ev);
+  if (searching) {
+    searching = false;
+    postMessage({ type: 'result', bestMove: null, score: 0, depth: 0, nodes: 0, timeMs: 0, pv: [], error: ev.message || 'unknown worker error' });
+  }
+});
+self.addEventListener('unhandledrejection', (ev) => {
+  console.error('[worker] unhandled rejection:', ev.reason);
+  if (searching) {
+    searching = false;
+    postMessage({ type: 'result', bestMove: null, score: 0, depth: 0, nodes: 0, timeMs: 0, pv: [], error: String(ev.reason) });
+  }
+});

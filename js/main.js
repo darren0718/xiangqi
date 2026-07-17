@@ -47,6 +47,8 @@ const MATE_SCORE = 60000;
 
 // ========== Web Worker ==========
 let worker;
+let aiWatchdog = null;
+let searchToken = 0;
 function initWorker() {
   if (worker) worker.terminate();
   worker = new Worker('js/engine-worker.js');
@@ -60,12 +62,26 @@ function initWorker() {
         render();
       }
     } else if (msg.type === 'result') {
+      // stale result（悔棋/newgame 后到达）→ 丢弃
+      if (msg.token !== undefined && msg.token !== searchToken) {
+        console.warn('[main] 丢弃 stale result token=' + msg.token + ' vs ' + searchToken);
+        return;
+      }
       aiThinking = false;
       pvArrows = null;  // 搜索结束，清箭头
-      searchContentEl.innerHTML += '<br>✓ 完成';
+      if (aiWatchdog) { clearTimeout(aiWatchdog); aiWatchdog = null; }
+      if (msg.error) {
+        searchContentEl.innerHTML += '<br>⚠️ 引擎错误: ' + msg.error;
+        console.error('[main] engine error:', msg.error);
+      } else {
+        searchContentEl.innerHTML += '<br>✓ 完成';
+      }
       render();
       if (msg.bestMove && !gameOver) {
         doMove(msg.bestMove[0], msg.bestMove[1], msg.bestMove[2], msg.bestMove[3]);
+      } else if (!msg.bestMove && !gameOver) {
+        // 引擎没给合法招 → 通常是 wasm 异常或困毙。给用户可见提示，避免 UI 假死
+        statusEl.textContent = '⚠️ AI 未返回招法（可能困毙或引擎异常），请悔棋重试';
       }
       updateStatus();
     }
@@ -81,13 +97,26 @@ function aiSearch() {
   aiDepth = depth;
   searchContentEl.innerHTML = '思考中…';
   updateStatus();
+  searchToken++;
   worker.postMessage({
     type: 'search',
+    token: searchToken,
     board: board,
     redToMove: !playerRed,
     depth: depth,
     moveHistory: moveHistory,
   });
+  // 看门狗：30s 内没收到 result → 强制解锁 UI（避免 wasm 卡死导致 aiThinking 永远为 true）
+  if (aiWatchdog) clearTimeout(aiWatchdog);
+  aiWatchdog = setTimeout(() => {
+    console.error('[main] AI 30s 未响应，强制重置 worker');
+    aiThinking = false;
+    pvArrows = null;
+    statusEl.textContent = '⚠️ AI 长时间无响应，已重置';
+    try { worker.terminate(); } catch (_) {}
+    initWorker();
+    aiWatchdog = null;
+  }, 30000);
 }
 
 // ========== Palette ==========
@@ -249,7 +278,7 @@ function doMove(fr, fc, tr, tc) {
   updateEvalDisplay(playerRed ? redCp : -redCp, 0);
 
   if (positionHistory.get(posKey) >= 3) {
-    gameOver=true; statusEl.textContent='三次重复，和棋'; statusEl.className='status'; return;
+    gameOver=true; statusEl.textContent='⚖️ 三次重复局面，判和'; statusEl.className='status'; console.log('[game] 三次重复判和'); return;
   }
   const status = gameStatus(board, currentTurn);
   if (status === 'checkmate') {
@@ -312,7 +341,7 @@ document.getElementById('undo').addEventListener('click', () => {
   if (history.length>0 && isRed(history[history.length-1].piece)!==playerRed) steps=2;
   else steps=1;
   // If AI is thinking, stop it
-  if (aiThinking) { worker.postMessage({type:'stop'}); aiThinking=false; }
+  if (aiThinking) { worker.postMessage({type:'stop'}); aiThinking=false; searchToken++; if (aiWatchdog) { clearTimeout(aiWatchdog); aiWatchdog = null; } }
   pvArrows = null;
   for(let i=0;i<steps&&history.length>0;i++){
     const last=history.pop();
