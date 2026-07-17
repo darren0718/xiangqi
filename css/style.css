@@ -1,0 +1,192 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #2c1810;
+  color: #f0e0c0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 20px;
+  -webkit-text-size-adjust: 100%;
+}
+.container { text-align: center; width: 100%; max-width: 820px; }
+h1 { margin-bottom: 16px; font-size: 28px; color: #f5deb3; text-shadow: 2px 2px 4px #000; }
+.game-area { display: flex; gap: 20px; justify-content: center; align-items: flex-start; }
+canvas {
+  background: #f0c78a;
+  border: 3px solid #5a3a1a;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  touch-action: manipulation; /* 消除移动端点击 300ms 延迟 */
+  display: block;
+  max-width: 100%;
+}
+.sidebar {
+  width: 220px;
+  text-align: left;
+  background: rgba(0,0,0,0.3);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.status {
+  font-size: 18px;
+  font-weight: bold;
+  padding: 10px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 6px;
+  text-align: center;
+}
+.status.red { color: #ff6b6b; }
+.status.black { color: #aaa; }
+.controls { display: flex; flex-direction: column; gap: 8px; }
+.controls label { font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.controls select, .controls button {
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid #8b6914;
+  background: #3a2a1a;
+  color: #f0e0c0;
+  font-size: 14px;
+  cursor: pointer;
+}
+.controls button:hover { background: #5a4020; }
+.move-log {
+  flex: 1;
+  max-height: 360px;
+  overflow-y: auto;
+  background: rgba(0,0,0,0.2);
+  border-radius: 6px;
+  padding: 8px 8px 8px 28px;
+  font-size: 13px;
+}
+.move-log h3 { font-size: 14px; margin-left: -16px; margin-bottom: 6px; }
+.move-log ol { line-height: 1.7; }
+.move-log li.red-move { color: #ff6b6b; }
+.move-log li.black-move { color: #ccc; }
+.btn-row { display: flex; gap: 6px; margin-top: 4px; }
+.btn-row button { flex: 1; }
+.controls button.active { background: #6b4a20; border-color: #daa520; color: #ffd700; }
+.edit-panel {
+  background: rgba(0,0,0,0.25);
+  border-radius: 6px;
+  padding: 10px;
+}
+.edit-panel h3 { font-size: 14px; margin-bottom: 8px; }
+.piece-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.piece-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #e8c878;
+  border: 2px solid;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  font-family: "KaiTi","STKaiti",serif;
+}
+.piece-btn.red { border-color: #b22222; color: #b22222; }
+.piece-btn.black { border-color: #1a1a1a; color: #1a1a1a; }
+.piece-btn.erase { border-color: #888; color: #888; font-size: 11px; background: rgba(255,255,255,0.1); }
+.piece-btn.selected { box-shadow: 0 0 0 3px #ffd700; }
+.search-info {
+  background: rgba(0,0,0,0.25);
+  border-radius: 6px;
+  padding: 10px;
+}
+.search-info h3 { font-size: 13px; margin-bottom: 6px; }
+.search-info .si-row { font-size: 12px; color: #ccc; margin: 2px 0; }
+.search-info .si-pv { font-size: 11px; color: #aaa; margin-top: 4px; word-break: break-all; font-family: monospace; }
+
+.board-wrap { display: flex; align-items: stretch; gap: 8px; }
+.eval-bar-wrap { display: flex; flex-direction: column; align-items: center; width: 28px; }
+.eval-bar {
+  width: 22px;
+  flex: 1;
+  background: #1a1a1a;
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #555;
+  min-height: 500px;
+}
+.eval-fill {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  background: #f0f0f0;
+  transition: height 0.3s ease;
+  height: 50%;
+}
+.eval-label {
+  font-size: 11px;
+  color: #ccc;
+  margin-top: 4px;
+  text-align: center;
+  font-family: monospace;
+  word-break: keep-all;
+  white-space: nowrap;
+}
+
+/* ========== 移动端适配（< 768px） ========== */
+@media (max-width: 768px) {
+  body { padding: 8px; align-items: flex-start; }
+  h1 { font-size: 20px; margin-bottom: 10px; }
+  .game-area { flex-direction: column; align-items: center; gap: 12px; }
+  .container { max-width: 100%; }
+
+  /* board-wrap 还是横向（含 eval bar），自动按 viewport 缩小 */
+  .board-wrap { gap: 6px; }
+  .eval-bar { min-height: 360px; }
+  .eval-bar-wrap { width: 24px; }
+  .eval-bar { width: 18px; }
+  .eval-label { font-size: 10px; }
+
+  /* sidebar 改全宽，紧凑布局，触摸目标加大 */
+  .sidebar {
+    width: 100%;
+    max-width: 540px;
+    padding: 12px;
+    gap: 10px;
+  }
+  .status { font-size: 16px; padding: 8px; }
+  .controls label { font-size: 14px; flex-wrap: wrap; }
+  .controls select,
+  .controls button,
+  .btn-row button {
+    padding: 10px 14px;
+    font-size: 15px;
+    min-height: 44px;       /* Apple HIG 触摸目标最小值 */
+    border-radius: 6px;
+  }
+  .btn-row { gap: 8px; margin-top: 6px; }
+  .piece-btn { width: 40px; height: 40px; font-size: 18px; }
+
+  .move-log { max-height: 180px; font-size: 12px; padding: 6px 6px 6px 24px; }
+  .move-log h3 { font-size: 13px; margin-left: -14px; margin-bottom: 4px; }
+  .search-info { padding: 8px; }
+  .search-info h3 { font-size: 12px; }
+  .search-info .si-row { font-size: 11px; }
+  .search-info .si-pv { font-size: 11px; line-height: 1.5; }
+
+  .edit-panel { padding: 8px; }
+  .edit-panel h3 { font-size: 13px; }
+}
+
+@media (max-width: 400px) {
+  /* 极窄屏（iPhone SE 等）进一步压缩 */
+  h1 { font-size: 18px; }
+  .controls select,
+  .controls button,
+  .btn-row button { font-size: 14px; padding: 8px 10px; }
+  .eval-label { font-size: 9px; }
+}

@@ -1,0 +1,15 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node (benchmark only, no deps)
+node_modules/
+
+# Benchmark debug artifacts (keep baseline/results, ignore temp)
+benchmark-*.tmp.json

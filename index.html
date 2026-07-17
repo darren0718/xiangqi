@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中国象棋 - 人机对战</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="container">
+  <h1>中国象棋 · 人机对战</h1>
+  <div class="game-area">
+    <div class="board-wrap">
+      <canvas id="board" width="540" height="600"></canvas>
+      <div class="eval-bar-wrap">
+        <div class="eval-bar" id="evalBar">
+          <div class="eval-fill" id="evalFill"></div>
+        </div>
+        <div class="eval-label" id="evalLabel">0.0</div>
+      </div>
+    </div>
+    <div class="sidebar">
+      <div class="status" id="status">红方（你）先行</div>
+      <div class="controls">
+        <label>AI 难度：
+          <select id="difficulty">
+            <option value="1">入门（1层）</option>
+            <option value="2">初级（2层）</option>
+            <option value="3" selected>中级（3层）</option>
+            <option value="3">中级（3层）</option>
+            <option value="4">高级（4层）</option>
+            <option value="5">专家（5层，较慢）</option>
+          </select>
+        </label>
+        <label>你执：
+          <select id="side">
+            <option value="red" selected>红方（先手）</option>
+            <option value="black">黑方（后手）</option>
+          </select>
+        </label>
+        <div class="btn-row">
+          <button id="newGame">新开局</button>
+          <button id="undo">悔棋</button>
+        </div>
+        <div class="btn-row">
+          <button id="editMode" class="edit-btn">摆子模式</button>
+          <button id="flipBoard">翻转棋盘</button>
+        </div>
+      </div>
+      <div class="edit-panel" id="editPanel" style="display:none">
+        <h3>摆子</h3>
+        <div class="piece-palette" id="piecePalette"></div>
+        <div class="btn-row">
+          <button id="clearBoard">清空棋盘</button>
+          <button id="resetBoard">初始局面</button>
+        </div>
+        <div class="btn-row">
+          <button id="switchTurn">切换走方</button>
+          <button id="startFromEdit">开始对局</button>
+        </div>
+      </div>
+      <div class="search-info" id="searchInfo">
+        <h3>AI 搜索</h3>
+        <div id="searchContent">等待开局…</div>
+      </div>
+      <div class="move-log">
+        <h3>走棋记录</h3>
+        <ol id="moveList"></ol>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="js/chess.js"></script>
+<script src="js/evaluate.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
