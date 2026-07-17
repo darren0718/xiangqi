@@ -61,3 +61,11 @@
 - 优化后必须跑同一套 benchmark，给出对比数据（表格或清晰的数字对比）。
 - 没有对比数据的优化不允许合入，因为无法证明优化有效，也无法防止 regression。
 - Benchmark 脚本位于项目根目录，用 Node.js 可直接运行：`node benchmark.js`
+
+## Rust/WASM 引擎（v4）
+- 自 v4 起 AI 引擎实际实现位于 `rust-engine/`，编译为 `js/wasm/engine.wasm`
+- `js/engine-worker.js` 是 wasm 薄壳（Worker 消息 API 完全兼容 v3）
+- `js/engine-worker.js.jsbak` 保留 v3 JS 实现，用于对拍与回滚
+- 修改 AI 引擎请改 `rust-engine/src/*.rs`，然后
+  `cd rust-engine && wasm-pack build --release --target no-modules --out-dir ../js/wasm --out-name engine`
+- 验证：`node crosscheck.js` + `node benchmark-rust.js`，性能不能低于 baseline（`benchmark-baseline.json`）× 3
