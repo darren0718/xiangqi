@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-07-17T16:00:50.351Z",
-  "version": "v6-s2-s5",
+  "timestamp": "2026-07-17T16:05:25.155Z",
+  "version": "v6-s7-lmr",
   "results": [
     {
       "name": "中炮对屏风马(4步)",
@@ -20,39 +20,39 @@
     {
       "name": "中局复杂(12步)",
       "depth": 4,
-      "nodes": 2398950,
-      "timeMs": 5555,
-      "nps": 431854,
-      "score": 223,
+      "nodes": 5177361,
+      "timeMs": 12001,
+      "nps": 431411,
+      "score": 268,
       "bestMove": [
         6,
         4,
         6,
         3
       ],
-      "actualDepth": 12
+      "actualDepth": 11
     },
     {
       "name": "顺炮横车对直车(6步)",
       "depth": 4,
-      "nodes": 3451823,
-      "timeMs": 7649,
-      "nps": 451278,
-      "score": -38,
+      "nodes": 3115608,
+      "timeMs": 6688,
+      "nps": 465850,
+      "score": -70,
       "bestMove": [
         7,
         4,
         7,
         8
       ],
-      "actualDepth": 11
+      "actualDepth": 10
     },
     {
       "name": "仙人指路对卒底炮(5步)",
       "depth": 4,
-      "nodes": 1257283,
-      "timeMs": 2639,
-      "nps": 476424,
+      "nodes": 2462789,
+      "timeMs": 5165,
+      "nps": 476823,
       "score": 61,
       "bestMove": [
         2,
@@ -65,10 +65,10 @@
     {
       "name": "中炮屏风马(d5深度)",
       "depth": 5,
-      "nodes": 2198202,
-      "timeMs": 4674,
-      "nps": 470304,
-      "score": 134,
+      "nodes": 4146912,
+      "timeMs": 8694,
+      "nps": 476986,
+      "score": 130,
       "bestMove": [
         9,
         7,
@@ -79,8 +79,8 @@
     }
   ],
   "totals": {
-    "nodes": 9306259,
-    "timeMs": 20518,
-    "nps": 453566
+    "nodes": 14902671,
+    "timeMs": 32549,
+    "nps": 457853
   }
 }

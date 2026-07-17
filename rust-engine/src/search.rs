@@ -432,7 +432,7 @@ fn negamax(
         } else {
             let mut red_amt = 0i32;
             if depth >= 3 && moves_done > 3 && !is_cap && !gc && !in_chk {
-                let base = 1 + (((moves_done as f64).ln() * (depth as f64).ln()) / 4.0).floor() as i32;
+                let base = 1 + (((moves_done as f64).ln() * (depth as f64).ln()) / 5.0).floor() as i32;
                 red_amt = std::cmp::min(depth - 2, base);
                 if is_pv { red_amt = std::cmp::max(0, red_amt - 1); }
             }
