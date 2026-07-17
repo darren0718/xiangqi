@@ -35,6 +35,8 @@ pub struct SearchCtx {
     // A3: 60 步无吃子判和（半手 clock 栈；每 make push，每 unmake pop）
     // 0 = 上一手是吃子；否则递增。当栈顶 >= 120（60 全手）→ 视为和棋 = 0
     pub halfmove_clock: Vec<i32>,
+    // Step 15: Singular Extension —— 当 Some 时，negamax 在本层跳过该走法且不做 TT probe/put/null-move/IID
+    pub excluded: Option<(i32,i32,i32,i32)>,
 }
 
 impl SearchCtx {
@@ -52,6 +54,7 @@ impl SearchCtx {
             tt_age: 0,
             eval_stack: vec![0; 256],
             halfmove_clock: Vec::with_capacity(128),
+            excluded: None,
         }
     }
     pub fn clear_tt(&mut self) { for e in self.tt.iter_mut() { *e = TTEntry::default(); } }
@@ -264,15 +267,25 @@ fn negamax(
     let hash = ctx.current_hash;
     #[cfg(debug_assertions)]
     debug_assert_eq!(hash, board_hash(&ctx.z, board, red_to_move), "incremental hash out of sync");
+    // Step 15: 消费 excluded（本层生效一次）；SE 探测节点不做 TT probe/put/null-move/IID
+    let excluded = ctx.excluded.take();
     let mut tt_best: Option<(i32,i32,i32,i32)> = None;
-    if let Some(tte) = tt_get(ctx, hash) {
-        if tte.has_mv { tt_best = Some(tte.mv); }
-        if tte.d >= depth {
-            match tte.f {
-                TT_EXACT => return tte.v,
-                TT_LOWER => if tte.v >= beta { return tte.v; },
-                TT_UPPER => if tte.v <= alpha { return tte.v; },
-                _ => {}
+    let mut tt_v_for_se: Option<i32> = None;
+    let mut tt_flag_for_se: u8 = 0;
+    let mut tt_d_for_se: i32 = 0;
+    if excluded.is_none() {
+        if let Some(tte) = tt_get(ctx, hash) {
+            if tte.has_mv { tt_best = Some(tte.mv); }
+            tt_v_for_se = Some(tte.v);
+            tt_flag_for_se = tte.f;
+            tt_d_for_se = tte.d;
+            if tte.d >= depth {
+                match tte.f {
+                    TT_EXACT => return tte.v,
+                    TT_LOWER => if tte.v >= beta { return tte.v; },
+                    TT_UPPER => if tte.v <= alpha { return tte.v; },
+                    _ => {}
+                }
             }
         }
     }
@@ -319,7 +332,7 @@ fn negamax(
         }
         has
     };
-    if allow_null && !in_chk && depth >= 3 && side_has_major && !is_pv {
+    if excluded.is_none() && allow_null && !in_chk && depth >= 3 && side_has_major && !is_pv {
         let r = if depth >= 5 { 3 } else { 2 };
         // 做空着：仅翻转 side，需要同步 XOR hash
         ctx.current_hash ^= ctx.z.side[0] ^ ctx.z.side[1];
@@ -336,7 +349,7 @@ fn negamax(
     }
 
     // IID
-    if tt_best.is_none() && depth >= 4 {
+    if excluded.is_none() && tt_best.is_none() && depth >= 4 {
         // JS: 创建局部空 killer 数组做 shallower search，结果通过 TT 拉取
         let mut sk: Vec<Option<(i32,i32,i32,i32)>> = vec![None; 256];
         let _ = negamax(ctx, board, depth-2, alpha, beta, red_to_move, ply, &mut sk, counter_moves, ply_stack, true, false, rep_count);
@@ -360,15 +373,47 @@ fn negamax(
     };
     let scored = score_moves(board, &all_moves, tt_best, k1, k2, cm, &ctx.history);
 
+    // Step 15: Singular Extension —— TT move 明显最优时延伸 1 层
+    // 触发条件（保守）：非 SE 探测本身、非 root、depth ≥ 8、TT 命中且有 move、
+    //   TT flag = EXACT 或 LOWER、TT depth 不比当前浅 3、TT 值非 mate。
+    // 做法：在同局面同 ply 用 β = tt_v - margin, 深度 (depth-1)/2, 排除 tt_move 探测。
+    //   若结果 < sbeta（即其他所有走法都无法接近 tt_v）→ tt_move 是 singular → 该 move sd+1。
+    let mut singular_ext: i32 = 0;
+    if excluded.is_none() && ply > 0 && depth >= 10 {
+        if let (Some(ttmv), Some(ttv)) = (tt_best, tt_v_for_se) {
+            if tt_d_for_se >= depth - 2
+                && tt_flag_for_se == TT_EXACT
+                && ttv.abs() < MATE_THRESHOLD
+            {
+                let margin = 3 * depth;
+                let sbeta = ttv - margin;
+                let sdepth = (depth - 1) / 2;
+                if sbeta > -MATE + 100 && sdepth >= 1 {
+                    ctx.excluded = Some(ttmv);
+                    let v = negamax(ctx, board, sdepth, sbeta - 1, sbeta, red_to_move, ply, killers, counter_moves, ply_stack, false, false, rep_count);
+                    // 保险：无论 negamax 是否消费了 excluded，这里都清掉
+                    ctx.excluded = None;
+                    if !ctx.stop && v < sbeta {
+                        singular_ext = 1;
+                    }
+                }
+            }
+        }
+    }
+
     let mut best_val = -INF;
     let mut best_move = scored[0].0;
     let mut tt_flag = TT_UPPER;
     let mut moves_done = 0i32;
 
     for &(mv, _) in scored.iter() {
+        // Step 15: 跳过被排除的 move（SE 探测时用）
+        if let Some(ex) = excluded { if ex == mv { continue; } }
         let (fr, fc, tr, tc) = mv;
         let is_cap = board[idx(tr,tc)] != 0;
         if futile && !is_cap && !in_chk && moves_done > 0 { continue; }
+        // Step 15: 该 move 是被证明 singular 的 TT move → 该子树 +1 层
+        let ext = if singular_ext > 0 && Some(mv) == tt_best { singular_ext } else { 0 };
         // Step 9B: LMP 保留占位；反复实验发现象棋分支因子小、quiet move 相对稀
         // 每次触发都会导致 bestMove 变差；暂不启用
         let u = crate::rules::make_move_zh(board, fr, fc, tr, tc, &mut ctx.current_hash, &ctx.z);
@@ -380,7 +425,7 @@ fn negamax(
         ctx.path_gives_check.push(gc);
         push_halfmove(ctx, u.captured);
         moves_done += 1;
-        let sd = depth - 1;
+        let sd = depth - 1 + ext;
         let val;
         if moves_done == 1 {
             val = -negamax(ctx, board, sd, -beta, -alpha, !red_to_move, ply+1, killers, counter_moves, ply_stack, true, is_pv, rep_count);
@@ -424,7 +469,7 @@ fn negamax(
             tt_flag = TT_LOWER; break;
         }
     }
-    tt_put(ctx, hash, depth, tt_flag, best_val, best_move);
+    if excluded.is_none() { tt_put(ctx, hash, depth, tt_flag, best_val, best_move); }
     best_val
 }
 

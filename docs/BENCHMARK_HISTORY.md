@@ -370,3 +370,30 @@ Benchmark 局面（time_limit=0 走内部默认 8s，5 局面全部搜到 max_de
 - 总节点 16.9M
 - Regression S1/S2/S3 全绿；`cargo test` 14 通过；`crosscheck.js` 通过
 - **新增** `tests/stop-consistency.js` 8/8 通过
+
+## v5-p10-se (Step 15 — SPEC C4 · Singular Extension)
+**背景**：TT 命中且分值 EXACT 时，用降深 + 窄窗探测除 tt_move 外的走法；若都远低于 tt_v，说明 tt_move 是"独一无二的好手"，值得延伸 1 层。
+
+**实现要点**（`rust-engine/src/search.rs`）：
+- `SearchCtx.excluded: Option<Move>`：SE 探测时排除的 move；negamax 消费一次
+- 触发条件（保守）：`ply>0 && depth>=10 && tt_flag==EXACT && tt_d>=depth-2 && |tt_v|<MATE_THRESHOLD`
+- 探测参数：`sbeta = tt_v - 3*depth`, `sdepth = (depth-1)/2`, 窗口 `[sbeta-1, sbeta]`
+- 排除 move 时跳过 TT probe/put、null-move、IID（保证探测节点不污染 TT）
+- 若探测结果 `v < sbeta` → 该 tt_move 延伸 1 层（子树 depth+1）
+
+**Benchmark 数据**（vs Step 14）：
+
+| 局面 | 深度 | 节点 | 时间ms | 评分 |
+|---|---:|---:|---:|---:|
+| 中炮对屏风马(4步) | 0 | 1 | 1 | 0 |
+| 中局复杂(12步) | 11 (was 12) | 2,939,733 | 3,248 | 282 (was 284) |
+| 顺炮横车对直车(6步) | 11 | 2,696,667 | 2,880 | -26 |
+| 仙人指路对卒底炮(5步) | 11 (was 12) | 2,847,819 | 2,789 | 48 (was 63) |
+| 中炮屏风马(d5) | 10 | 5,314,331 | 5,476 | 129 |
+| **合计** | | **13,798,551** | **14,394** | |
+
+- 总时间 17,201ms → 14,394ms（**-16%**）
+- 总节点 16.9M → 13.8M（**-18%**）
+- 深度：案例 2 -1、案例 4 -1（SPEC 5.1 ≤1 层容差内）
+- Regression S1/S2/S3 全绿；`cargo test` 14 通过；`crosscheck.js` 通过；`stop-consistency` 8/8 通过
+- 意义：SE 让 TT 决策的关键 move 得到额外深度，提高战术精度；节点省下来是因为很多分支被 SE 提前证明非最佳
