@@ -29,7 +29,7 @@ async function initWasm() {
   wasmReady = true;
   // 尝试加载 NNUE 网络
   try {
-    const nnueUrl = new URL('wasm/pikafish.nnue', self.location.href);
+    const nnueUrl = new URL('wasm/pikafish_simple.nnue', self.location.href);
     const resp = await fetch(nnueUrl);
     if (resp.ok) {
       const buf = await resp.arrayBuffer();

@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-07-18T00:44:22.704Z",
-  "version": "v7-nnue",
+  "timestamp": "2026-07-18T06:38:48.818Z",
+  "version": "v7-nnue-final",
   "results": [
     {
       "name": "中炮对屏风马(4步)",
@@ -20,9 +20,9 @@
     {
       "name": "中局复杂(12步)",
       "depth": 4,
-      "nodes": 5189654,
-      "timeMs": 12009,
-      "nps": 432147,
+      "nodes": 5185559,
+      "timeMs": 12004,
+      "nps": 431986,
       "score": 268,
       "bestMove": [
         6,
@@ -36,8 +36,8 @@
       "name": "顺炮横车对直车(6步)",
       "depth": 4,
       "nodes": 3115608,
-      "timeMs": 6674,
-      "nps": 466828,
+      "timeMs": 6696,
+      "nps": 465294,
       "score": -70,
       "bestMove": [
         7,
@@ -51,8 +51,8 @@
       "name": "仙人指路对卒底炮(5步)",
       "depth": 4,
       "nodes": 2462789,
-      "timeMs": 5160,
-      "nps": 477285,
+      "timeMs": 5155,
+      "nps": 477748,
       "score": 61,
       "bestMove": [
         2,
@@ -66,8 +66,8 @@
       "name": "中炮屏风马(d5深度)",
       "depth": 5,
       "nodes": 4146912,
-      "timeMs": 8659,
-      "nps": 478914,
+      "timeMs": 8664,
+      "nps": 478637,
       "score": 130,
       "bestMove": [
         9,
@@ -79,8 +79,8 @@
     }
   ],
   "totals": {
-    "nodes": 14914964,
-    "timeMs": 32503,
-    "nps": 458880
+    "nodes": 14910869,
+    "timeMs": 32520,
+    "nps": 458514
   }
 }

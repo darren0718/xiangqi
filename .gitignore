@@ -16,3 +16,4 @@ benchmark-*.tmp.json
 
 # 后端对局日志（本地记录，勿入库）
 logs/
+js/wasm/pikafish*.nnue
