@@ -202,6 +202,13 @@ fn open_file(board: &Board, col: i32, red: bool) -> bool {
 }
 
 pub fn evaluate(board: &Board, red_to_move: bool) -> i32 {
+    // Step 30 (NNUE): 优先使用神经网络评估
+    if crate::nnue::nnue_loaded() {
+        let nnue_score = crate::nnue::nnue_evaluate(board, red_to_move);
+        if nnue_score != 0 {
+            return nnue_score;
+        }
+    }
     // Step 10.1 (v5-p5-perf): 单遍历 evaluate
     // 老实现分配 8 个 Vec 记录棋子位置，再多次遍历。这里改为定长栈数组 + 单次遍历累积。
     let mut score = 0i32;

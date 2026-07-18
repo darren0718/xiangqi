@@ -7,6 +7,7 @@ mod book;
 mod search;
 mod see;
 mod tactics;
+mod nnue;
 
 use wasm_bindgen::prelude::*;
 use board::*;

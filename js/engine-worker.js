@@ -27,6 +27,19 @@ async function initWasm() {
   await wasm_bindgen(url);
   wasmApi = wasm_bindgen;
   wasmReady = true;
+  // 尝试加载 NNUE 网络
+  try {
+    const nnueUrl = new URL('wasm/pikafish.nnue', self.location.href);
+    const resp = await fetch(nnueUrl);
+    if (resp.ok) {
+      const buf = await resp.arrayBuffer();
+      const data = new Uint8Array(buf);
+      wasmApi.nnue_load_wasm(data);
+      console.log('[worker] NNUE loaded, size:', data.length);
+    }
+  } catch (_) {
+    // 网络文件不存在，使用手写评估
+  }
 }
 
 // board 二维数组 → 90 字节 Uint8Array
